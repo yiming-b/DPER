@@ -1,3 +1,6 @@
+import { BASE_COLUMNS, DEFAULT_PHENOTYPES, normalizeWhitespace, slug } from "../../phenotypes";
+import type { PhenotypeDefinition } from "../../phenotypes";
+
 type Provider = "openai" | "claude";
 
 type ReportPayload = {
@@ -5,51 +8,10 @@ type ReportPayload = {
   text: string;
 };
 
-const PHENOTYPES = [
-  "diarrhea",
-  "vomiting",
-  "decreased_appetite_anorexia",
-  "lethargy",
-  "cough",
-  "sneezing",
-  "pruritus_itching",
-  "alopecia",
-  "otitis",
-  "skin_mass_lump",
-  "lameness_limping",
-  "pain",
-  "weight_loss",
-  "underweight",
-  "overweight_obesity",
-  "heart_murmur",
-  "dental_disease",
-  "urinary_tract_infection",
-  "proteinuria",
-  "anxiety_nervousness",
-  "wound_laceration_ulcer",
-  "allergic_dermatitis",
-  "pyoderma",
-  "pancreatitis",
-  "giardia",
-  "roundworm_infection",
-];
-
-const BASE_COLUMNS = [
-  "dog_id",
-  "source_file",
-  "dog_name",
-  "species",
-  "breed_raw",
-  "sex",
-  "reproductive_status",
-  "date_of_birth",
-  "age_reported",
-  "phenotype_event_count",
-];
-
-function slug(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "dog";
-}
+type PhenotypePayload = string | {
+  id?: unknown;
+  label?: unknown;
+};
 
 function parseJsonObject(raw: string) {
   const trimmed = raw.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
@@ -63,11 +25,46 @@ function parseJsonObject(raw: string) {
   }
 }
 
-function buildPrompt(report: ReportPayload) {
+function phenotypesFromPayload(input: unknown): PhenotypeDefinition[] {
+  if (!Array.isArray(input)) return DEFAULT_PHENOTYPES;
+
+  const seen = new Set<string>();
+  const phenotypes: PhenotypeDefinition[] = [];
+  for (const item of input) {
+    let rawLabel = "";
+    let rawId = "";
+    if (typeof item === "string") {
+      rawLabel = item;
+      rawId = item;
+    } else if (typeof item === "object" && item) {
+      const phenotype = item as Exclude<PhenotypePayload, string>;
+      rawLabel = typeof phenotype.label === "string" ? phenotype.label : "";
+      rawId = typeof phenotype.id === "string" ? phenotype.id : rawLabel;
+      if (!rawLabel) rawLabel = rawId;
+    }
+    const id = slug(rawId);
+    const label = normalizeWhitespace(rawLabel || rawId);
+    if (!id || !label || seen.has(id)) continue;
+    seen.add(id);
+    phenotypes.push({
+      id,
+      label,
+      terms: [label],
+    });
+  }
+  return phenotypes.length ? phenotypes : DEFAULT_PHENOTYPES;
+}
+
+function buildPrompt(report: ReportPayload, phenotypes: PhenotypeDefinition[]) {
+  const phenotypeList = phenotypes
+    .map((phenotype) => `- ${phenotype.id}${phenotype.label !== phenotype.id ? `: ${phenotype.label}` : ""}`)
+    .join("\n");
+  const examplePhenotype = phenotypes[0]?.id || "phenotype_column";
+
   return `Extract dog phenotype information from this veterinary PDF text.
 
-Use only these phenotype columns:
-${PHENOTYPES.join(", ")}
+Use only these exact phenotype columns:
+${phenotypeList}
 
 Return JSON only with this shape:
 {
@@ -79,12 +76,13 @@ Return JSON only with this shape:
   "date_of_birth": "",
   "age_reported": "",
   "phenotypes": {
-    "diarrhea": "present"
+    "${examplePhenotype}": "present"
   }
 }
 
 Rules:
 - Phenotype values must be one of present, absent, suspected, rule_out, historical, resolved, normal, abnormal, or empty string.
+- The keys inside "phenotypes" must exactly match the requested phenotype column ids.
 - Do not infer normal findings from silence.
 - Do not include owner names, addresses, phone numbers, or emails.
 
@@ -147,11 +145,11 @@ async function callClaude(apiKey: string, model: string, prompt: string) {
   return (data.content || []).filter((block) => block.type === "text").map((block) => block.text || "").join("");
 }
 
-function rowFromModel(index: number, report: ReportPayload, extracted: Record<string, unknown>) {
-  const phenotypes = typeof extracted.phenotypes === "object" && extracted.phenotypes ? extracted.phenotypes as Record<string, unknown> : {};
+function rowFromModel(index: number, report: ReportPayload, extracted: Record<string, unknown>, phenotypes: PhenotypeDefinition[]) {
+  const extractedPhenotypes = typeof extracted.phenotypes === "object" && extracted.phenotypes ? extracted.phenotypes as Record<string, unknown> : {};
   const dogName = typeof extracted.dog_name === "string" && extracted.dog_name ? extracted.dog_name : report.fileName.replace(/\.[^.]+$/, "");
   const row: Record<string, string> = {
-    dog_id: `${index + 1}_${slug(dogName)}`,
+    dog_id: `${index + 1}_${slug(dogName, "dog")}`,
     source_file: report.fileName,
     dog_name: dogName,
     species: typeof extracted.species === "string" ? extracted.species : "canine",
@@ -163,9 +161,9 @@ function rowFromModel(index: number, report: ReportPayload, extracted: Record<st
     phenotype_event_count: "0",
   };
   let count = 0;
-  for (const phenotype of PHENOTYPES) {
-    const value = typeof phenotypes[phenotype] === "string" ? phenotypes[phenotype] as string : "";
-    row[phenotype] = value;
+  for (const phenotype of phenotypes) {
+    const value = typeof extractedPhenotypes[phenotype.id] === "string" ? extractedPhenotypes[phenotype.id] as string : "";
+    row[phenotype.id] = value;
     if (value) count += 1;
   }
   row.phenotype_event_count = String(count);
@@ -178,6 +176,7 @@ export async function POST(request: Request) {
       provider?: Provider;
       apiKey?: string;
       model?: string;
+      phenotypes?: unknown;
       reports?: ReportPayload[];
     };
     if (!payload.apiKey) return Response.json({ error: "API key is required." }, { status: 400 });
@@ -185,15 +184,16 @@ export async function POST(request: Request) {
     if (!reports.length) return Response.json({ error: "At least one report is required." }, { status: 400 });
 
     const provider = payload.provider === "claude" ? "claude" : "openai";
+    const phenotypes = phenotypesFromPayload(payload.phenotypes);
     const rows = [];
     for (let index = 0; index < reports.length; index += 1) {
-      const prompt = buildPrompt(reports[index]);
+      const prompt = buildPrompt(reports[index], phenotypes);
       const raw = provider === "claude"
         ? await callClaude(payload.apiKey, payload.model || "", prompt)
         : await callOpenAI(payload.apiKey, payload.model || "", prompt);
-      rows.push(rowFromModel(index, reports[index], parseJsonObject(raw)));
+      rows.push(rowFromModel(index, reports[index], parseJsonObject(raw), phenotypes));
     }
-    return Response.json({ columns: [...BASE_COLUMNS, ...PHENOTYPES], rows });
+    return Response.json({ columns: [...BASE_COLUMNS, ...phenotypes.map((phenotype) => phenotype.id)], rows });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Extraction failed.";
     return Response.json({ error: message }, { status: 500 });

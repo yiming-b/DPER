@@ -1,6 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import type { ChangeEvent } from "react";
+import { BASE_COLUMNS, DEFAULT_PHENOTYPES, normalizeWhitespace, parsePhenotypeList, slug } from "./phenotypes";
+import type { PhenotypeDefinition } from "./phenotypes";
 
 type Provider = "openai" | "claude";
 type Mode = "default" | "api";
@@ -9,56 +12,6 @@ type DatasetRow = Record<string, string>;
 
 const DEFAULT_OPENAI_MODEL = "gpt-5.6-luna";
 const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-5";
-
-const PHENOTYPES = [
-  { id: "diarrhea", terms: ["diarrhea", "loose stool", "soft stool"] },
-  { id: "vomiting", terms: ["vomiting", "vomited", "vomit"] },
-  { id: "decreased_appetite_anorexia", terms: ["decreased appetite", "not eating", "anorexia", "inappetence"] },
-  { id: "lethargy", terms: ["lethargy", "lethargic"] },
-  { id: "cough", terms: ["cough", "coughing"] },
-  { id: "sneezing", terms: ["sneezing", "sneeze"] },
-  { id: "pruritus_itching", terms: ["pruritus", "itching", "itchy"] },
-  { id: "alopecia", terms: ["alopecia", "hair loss"] },
-  { id: "otitis", terms: ["otitis", "ear infection"] },
-  { id: "skin_mass_lump", terms: ["mass", "lump", "skin mass"] },
-  { id: "lameness_limping", terms: ["lameness", "limping", "limp"] },
-  { id: "pain", terms: ["painful", "pain"] },
-  { id: "weight_loss", terms: ["weight loss", "losing weight"] },
-  { id: "underweight", terms: ["underweight", "thin body condition"] },
-  { id: "overweight_obesity", terms: ["overweight", "obese", "obesity"] },
-  { id: "heart_murmur", terms: ["heart murmur", "murmur"] },
-  { id: "dental_disease", terms: ["dental disease", "tartar", "gingivitis"] },
-  { id: "urinary_tract_infection", terms: ["urinary tract infection", "uti"] },
-  { id: "proteinuria", terms: ["proteinuria", "protein in urine"] },
-  { id: "anxiety_nervousness", terms: ["anxiety", "nervous", "fearful"] },
-  { id: "wound_laceration_ulcer", terms: ["wound", "laceration", "ulcer"] },
-  { id: "allergic_dermatitis", terms: ["allergic dermatitis", "atopy", "allergy"] },
-  { id: "pyoderma", terms: ["pyoderma"] },
-  { id: "pancreatitis", terms: ["pancreatitis"] },
-  { id: "giardia", terms: ["giardia"] },
-  { id: "roundworm_infection", terms: ["roundworm"] },
-];
-
-const BASE_COLUMNS = [
-  "dog_id",
-  "source_file",
-  "dog_name",
-  "species",
-  "breed_raw",
-  "sex",
-  "reproductive_status",
-  "date_of_birth",
-  "age_reported",
-  "phenotype_event_count",
-];
-
-function normalizeWhitespace(value: string) {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-function slug(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "dog";
-}
 
 function csvEscape(value: string) {
   const text = value ?? "";
@@ -105,9 +58,10 @@ function inferStatus(text: string, term: string) {
   return "present";
 }
 
-function defaultExtract(reports: ReportText[]) {
+function defaultExtract(reports: ReportText[], phenotypes: PhenotypeDefinition[]) {
   const rows = reports.map((report, index) => {
     const text = report.text;
+    const textLower = text.toLowerCase();
     const dogName =
       extractField(text, [
         /\bName\s*:?\s*([A-Za-z][A-Za-z '\-()]{1,50})\s+Species\b/i,
@@ -118,7 +72,7 @@ function defaultExtract(reports: ReportText[]) {
     const sexRaw = extractField(text, [/\b(?:Sex|Gender)\s*:?\s*(Male\s*\/\s*Neutered|Female\s*\/\s*Spayed|Male,\s*Neutered|Female,\s*Spayed|MN|FS|Male|Female)/i]);
     const sexLower = sexRaw.toLowerCase();
     const row: DatasetRow = {
-      dog_id: `${index + 1}_${slug(dogName)}`,
+      dog_id: `${index + 1}_${slug(dogName, "dog")}`,
       source_file: report.fileName,
       dog_name: dogName,
       species: "canine",
@@ -130,15 +84,15 @@ function defaultExtract(reports: ReportText[]) {
       phenotype_event_count: "0",
     };
     let eventCount = 0;
-    for (const phenotype of PHENOTYPES) {
-      const matchedTerm = phenotype.terms.find((term) => text.toLowerCase().includes(term.toLowerCase()));
+    for (const phenotype of phenotypes) {
+      const matchedTerm = phenotype.terms.find((term) => textLower.includes(term.toLowerCase()));
       row[phenotype.id] = matchedTerm ? inferStatus(text, matchedTerm) : "";
       if (matchedTerm) eventCount += 1;
     }
     row.phenotype_event_count = String(eventCount);
     return row;
   });
-  return { columns: [...BASE_COLUMNS, ...PHENOTYPES.map((phenotype) => phenotype.id)], rows };
+  return { columns: [...BASE_COLUMNS, ...phenotypes.map((phenotype) => phenotype.id)], rows };
 }
 
 async function extractPdfText(file: File): Promise<ReportText> {
@@ -161,6 +115,7 @@ export default function Home() {
   const [provider, setProvider] = useState<Provider>("openai");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
+  const [phenotypeText, setPhenotypeText] = useState("");
   const [files, setFiles] = useState<FileList | null>(null);
   const [columns, setColumns] = useState<string[]>([]);
   const [rows, setRows] = useState<DatasetRow[]>([]);
@@ -169,7 +124,23 @@ export default function Home() {
   const [isRunning, setIsRunning] = useState(false);
 
   const visibleColumns = useMemo(() => columns.slice(0, 18), [columns]);
+  const customPhenotypes = useMemo(() => parsePhenotypeList(phenotypeText), [phenotypeText]);
+  const extractionPhenotypes = customPhenotypes.length ? customPhenotypes : DEFAULT_PHENOTYPES;
+  const isCustomPhenotypeList = customPhenotypes.length > 0;
   const canDownload = rows.length > 0 && columns.length > 0;
+  const phenotypeStep = mode === "api" ? "3" : "2";
+  const fileStep = mode === "api" ? "4" : "3";
+
+  async function handlePhenotypeFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      setError("");
+      setPhenotypeText(await file.text());
+    } catch {
+      setError("Could not read the phenotype .txt file.");
+    }
+  }
 
   async function runExtraction() {
     setError("");
@@ -178,6 +149,10 @@ export default function Home() {
     setColumns([]);
     if (!files?.length) {
       setError("Select at least one PDF report.");
+      return;
+    }
+    if (phenotypeText.trim() && !customPhenotypes.length) {
+      setError("Enter at least one phenotype, separated by line or comma, or clear the custom list to use the default.");
       return;
     }
     if (mode === "api" && !apiKey.trim()) {
@@ -190,7 +165,7 @@ export default function Home() {
       const reportTexts = await Promise.all(Array.from(files).map((file) => extractPdfText(file)));
       if (mode === "default") {
         setStatus("Generating dataset.csv with the built-in extractor...");
-        const dataset = defaultExtract(reportTexts);
+        const dataset = defaultExtract(reportTexts, extractionPhenotypes);
         setColumns(dataset.columns);
         setRows(dataset.rows);
       } else {
@@ -202,6 +177,7 @@ export default function Home() {
             provider,
             apiKey,
             model: model.trim(),
+            phenotypes: extractionPhenotypes.map((phenotype) => ({ id: phenotype.id, label: phenotype.label })),
             reports: reportTexts.map((report) => ({ fileName: report.fileName, text: report.text.slice(0, 60000) })),
           }),
         });
@@ -264,7 +240,40 @@ export default function Home() {
           )}
 
           <fieldset>
-            <legend>{mode === "api" ? "3" : "2"}. Dog PDF Files</legend>
+            <legend>{phenotypeStep}. Phenotype List</legend>
+            <p className="helper-text">
+              Leave this blank to use the default phenotype list. Add one phenotype per line, separate phenotypes with commas, or import a .txt list.
+            </p>
+            <label className="field">
+              <span>Custom phenotype list</span>
+              <textarea
+                value={phenotypeText}
+                onChange={(event) => setPhenotypeText(event.target.value)}
+                placeholder={"vomiting\nheart murmur\nskin mass, weight loss"}
+              />
+            </label>
+            <div className="inline-controls">
+              <label className="txt-file">
+                <span>Import .txt</span>
+                <input type="file" accept=".txt,text/plain" onChange={handlePhenotypeFileChange} />
+              </label>
+              {isCustomPhenotypeList && (
+                <button type="button" className="text-action" onClick={() => setPhenotypeText("")}>Use default list</button>
+              )}
+            </div>
+            <p className="helper-text">
+              {isCustomPhenotypeList ? `Using ${customPhenotypes.length} custom phenotype columns.` : `Using ${DEFAULT_PHENOTYPES.length} default phenotype columns.`}
+            </p>
+            <details className="default-phenotypes">
+              <summary>Default phenotype list ({DEFAULT_PHENOTYPES.length})</summary>
+              <div className="chip-list">
+                {DEFAULT_PHENOTYPES.map((phenotype) => <span key={phenotype.id}>{phenotype.id}</span>)}
+              </div>
+            </details>
+          </fieldset>
+
+          <fieldset>
+            <legend>{fileStep}. Dog PDF Files</legend>
             <label className="file-box">
               <input type="file" accept="application/pdf,.pdf" multiple onChange={(event) => setFiles(event.target.files)} />
               <span>{files?.length ? `${files.length} file${files.length === 1 ? "" : "s"} selected` : "Select multiple PDF reports"}</span>
@@ -283,6 +292,7 @@ export default function Home() {
           <h2>Output</h2>
           <div className="metric"><span>Rows</span><strong>{rows.length}</strong></div>
           <div className="metric"><span>Columns</span><strong>{columns.length}</strong></div>
+          <div className="metric"><span>Phenotypes</span><strong>{extractionPhenotypes.length}</strong></div>
           <div className="metric"><span>Mode</span><strong>{mode === "default" ? "Default" : provider}</strong></div>
           <button className="secondary-action" disabled={!canDownload} onClick={() => downloadCsv(columns, rows)}>Download dataset.csv</button>
         </aside>

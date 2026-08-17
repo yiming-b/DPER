@@ -30,7 +30,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -174,12 +175,83 @@ legend {
   font-size: 14px;
 }
 
-.field input {
+.field input,
+.field textarea {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 10px 11px;
   color: var(--ink);
+}
+
+.field textarea {
+  min-height: 112px;
+  resize: vertical;
+  line-height: 1.4;
+}
+
+.helper-text {
+  margin: 0 0 12px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.inline-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.txt-file {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  color: var(--muted);
+}
+
+.txt-file input {
+  max-width: 260px;
+}
+
+.text-action {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #edf2f4;
+  color: var(--ink);
+  min-height: 34px;
+  padding: 0 11px;
+  cursor: pointer;
+}
+
+.default-phenotypes {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.default-phenotypes summary {
+  cursor: pointer;
+  color: var(--accent-dark);
+  font-weight: 700;
+}
+
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 11px;
+}
+
+.chip-list span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f9fbfc;
+  color: var(--muted);
+  padding: 5px 8px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .file-box {

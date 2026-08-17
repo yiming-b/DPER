@@ -75,7 +75,7 @@ Hosted browser app:
 
 https://dper-dog-phenotypes.ybyb1234.chatgpt.site
 
-The `site/` folder contains a deployable browser version of DPER. It lets users upload multiple PDFs, choose the built-in extractor or provide an OpenAI/Claude API key, preview `dataset.csv`, and download it directly.
+The `site/` folder contains a deployable browser version of DPER. It lets users upload multiple PDFs, choose the built-in extractor or provide an OpenAI/Claude API key, use the default phenotype list or provide a custom comma-separated / one-per-line phenotype list, preview `dataset.csv`, and download it directly.
 
 Local Python UI:
 
