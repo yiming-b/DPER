@@ -64,6 +64,28 @@ Then open:
 http://127.0.0.1:7860
 ```
 
+These commands intentionally keep the working environment inside the `DPER` folder:
+
+- Python packages install into `DPER/.venv/`.
+- Qwen and other local model files are stored in `DPER/models/`.
+- The setup script uses `DPER/.pip_cache/` and `DPER/.hf_cache/` for its own install/download cache.
+
+Optional, for later manual commands in the same terminal, set cache folders explicitly.
+
+Windows PowerShell:
+
+```powershell
+$env:PIP_CACHE_DIR = "$PWD\.pip_cache"
+$env:HF_HOME = "$PWD\.hf_cache"
+```
+
+Linux/macOS:
+
+```bash
+export PIP_CACHE_DIR="$PWD/.pip_cache"
+export HF_HOME="$PWD/.hf_cache"
+```
+
 Full CLI command for local Qwen mode:
 
 Windows PowerShell:
@@ -279,6 +301,8 @@ You can select a supported model from the UI dropdown or pass a model id with `-
 ## Local Qwen3 4B Mode
 
 No API key is required for local Qwen mode. No local model is committed to this repository; large model files should stay in `models/` and are ignored by Git.
+
+When you run the recommended setup from inside the cloned `DPER` folder, the virtual environment, package cache, Hugging Face cache, and model files all stay under that same folder.
 
 The local Python UI lists:
 

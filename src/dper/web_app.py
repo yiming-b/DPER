@@ -59,7 +59,8 @@ def default_model_options() -> list[dict[str, str]]:
                 "label": "Qwen3 4B Q4_K_M",
                 "detail": "Recommended local semantic model. Not downloaded yet. "
                 "Windows: python .\\scripts\\setup_local_qwen.py. "
-                "Linux/macOS: python scripts/setup_local_qwen.py.",
+                "Linux/macOS: python scripts/setup_local_qwen.py. "
+                "Use .venv and models inside the DPER folder.",
                 "value": str(recommended),
                 "available": "no",
                 "selected": "no",

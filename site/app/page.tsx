@@ -58,7 +58,7 @@ const DEFAULT_EXTRACTOR_OPTIONS: DefaultExtractorOption[] = [
   {
     id: "qwen3-4b-q4km",
     label: "Qwen3 4B Q4_K_M",
-    detail: "Recommended local semantic model. Setup: Windows uses python .\\scripts\\setup_local_qwen.py; Linux/macOS uses python scripts/setup_local_qwen.py. No OpenAI, Claude, or Hugging Face key is needed for this public Qwen download.",
+    detail: "Recommended local semantic model. Create .venv inside DPER, then run setup: Windows uses python .\\scripts\\setup_local_qwen.py; Linux/macOS uses python scripts/setup_local_qwen.py. Models save to DPER/models.",
     availability: "Recommended local",
   },
   {

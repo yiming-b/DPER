@@ -8,9 +8,9 @@ import sys
 from pathlib import Path
 
 
-def run(command: list[str], cwd: Path) -> None:
+def run(command: list[str], cwd: Path, env: dict[str, str]) -> None:
     print(f"\n> {' '.join(command)}")
-    subprocess.check_call(command, cwd=cwd)
+    subprocess.check_call(command, cwd=cwd, env=env)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -23,11 +23,16 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = build_parser().parse_args()
     repo_root = Path(__file__).resolve().parents[1]
+    local_env = os.environ.copy()
+    local_env["PIP_CACHE_DIR"] = str(repo_root / ".pip_cache")
+    local_env["HF_HOME"] = str(repo_root / ".hf_cache")
+    Path(local_env["PIP_CACHE_DIR"]).mkdir(exist_ok=True)
+    Path(local_env["HF_HOME"]).mkdir(exist_ok=True)
     if not args.skip_install:
-        run([sys.executable, "-m", "pip", "install", "--upgrade", "pip"], repo_root)
-        run([sys.executable, "-m", "pip", "install", "-e", ".[local]"], repo_root)
+        run([sys.executable, "-m", "pip", "install", "--upgrade", "pip"], repo_root, local_env)
+        run([sys.executable, "-m", "pip", "install", "-e", ".[local]"], repo_root, local_env)
     if not args.skip_download:
-        run([sys.executable, str(repo_root / "scripts" / "download_qwen3_4b.py")], repo_root)
+        run([sys.executable, str(repo_root / "scripts" / "download_qwen3_4b.py")], repo_root, local_env)
     if os.name == "nt":
         web_command = "python .\\scripts\\run_web.py"
         cli_command = 'python .\\scripts\\llm_extract.py --provider local-qwen --input ".\\reports" --output ".\\output\\dper_qwen"'
@@ -35,6 +40,9 @@ def main() -> None:
         web_command = "python scripts/run_web.py"
         cli_command = 'python scripts/llm_extract.py --provider local-qwen --input "./reports" --output "./output/dper_qwen"'
     print("\nLocal Qwen setup is ready.")
+    print(f"Virtual environment should be inside: {repo_root / '.venv'}")
+    print(f"Package cache: {local_env['PIP_CACHE_DIR']}")
+    print(f"Model files: {repo_root / 'models'}")
     print(f"Start the web UI with: {web_command}")
     print(f"Or run CLI extraction with: {cli_command}")
 
