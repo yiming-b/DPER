@@ -187,6 +187,49 @@ legend {
   box-shadow: 0 0 0 2px rgba(40, 102, 110, 0.15);
 }
 
+.model-list {
+  display: grid;
+  gap: 10px;
+}
+
+.model-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 11px;
+  background: #f9fbfc;
+  cursor: pointer;
+}
+
+.model-row input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+
+.model-row span {
+  display: grid;
+  gap: 5px;
+}
+
+.model-row small {
+  color: var(--muted);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.model-row.ready {
+  border-color: #8fb99a;
+  background: #f2faf4;
+}
+
+.model-row.missing {
+  border-color: #d5b16e;
+  background: #fff9ec;
+}
+
 .field {
   display: grid;
   gap: 7px;

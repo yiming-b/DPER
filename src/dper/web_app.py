@@ -9,6 +9,7 @@ from flask import Flask, abort, render_template, request, send_file
 
 from .dataset import preview_csv
 from .llm_pipeline import RunConfig, run_extraction
+from .local_models import QWEN3_4B_FILENAME, QWEN3_4B_MODEL_ID, default_qwen_model_path
 from .providers import ProviderError, make_provider
 
 OPENAI_MODEL_OPTIONS = [
@@ -35,6 +36,66 @@ def local_models() -> list[Path]:
     return sorted(models_dir.glob("*.gguf"))
 
 
+def default_model_options() -> list[dict[str, str]]:
+    recommended = default_qwen_model_path(repo_root())
+    options: list[dict[str, str]] = [
+        {
+            "id": "builtin",
+            "label": "Built-in regex/dictionary extractor",
+            "detail": "Always available. Fast, no API key, no model download.",
+            "value": "",
+            "available": "yes",
+        }
+    ]
+    if recommended.exists():
+        options.append(
+            {
+                "id": "qwen3-4b",
+                "label": "Qwen3 4B Q4_K_M",
+                "detail": f"Downloaded: {recommended}. Public Qwen download does not need a Hugging Face token.",
+                "value": str(recommended),
+                "available": "yes",
+            }
+        )
+    else:
+        options.append(
+            {
+                "id": "qwen3-4b",
+                "label": "Qwen3 4B Q4_K_M",
+                "detail": f"Not downloaded. Run dper-download-qwen3 to create models\\{QWEN3_4B_FILENAME}. No Hugging Face token is needed for Qwen.",
+                "value": str(recommended),
+                "available": "no",
+            }
+        )
+    for path in local_models():
+        if path.resolve() == recommended.resolve():
+            continue
+        options.append(
+            {
+                "id": f"gguf:{path.name}",
+                "label": path.name,
+                "detail": f"Downloaded GGUF model: {path}",
+                "value": str(path),
+                "available": "yes",
+            }
+        )
+    return options
+
+
+def template_context(**overrides) -> dict[str, object]:
+    context = {
+        "local_models": local_models(),
+        "default_model_options": default_model_options(),
+        "qwen_model_id": QWEN3_4B_MODEL_ID,
+        "qwen_model_path": default_qwen_model_path(repo_root()),
+        "qwen_model_present": default_qwen_model_path(repo_root()).exists(),
+        "openai_model_options": OPENAI_MODEL_OPTIONS,
+        "claude_model_options": CLAUDE_MODEL_OPTIONS,
+    }
+    context.update(overrides)
+    return context
+
+
 def create_app() -> Flask:
     app = Flask(
         __name__,
@@ -47,14 +108,13 @@ def create_app() -> Flask:
     def index():
         return render_template(
             "index.html",
-            summary=None,
-            error=None,
-            dataset_preview=None,
-            dataset_download_url=None,
-            zip_download_url=None,
-            local_models=local_models(),
-            openai_model_options=OPENAI_MODEL_OPTIONS,
-            claude_model_options=CLAUDE_MODEL_OPTIONS,
+            **template_context(
+                summary=None,
+                error=None,
+                dataset_preview=None,
+                dataset_download_url=None,
+                zip_download_url=None,
+            )
         )
 
     @app.post("/extract")
@@ -79,10 +139,18 @@ def create_app() -> Flask:
             return _render_error("Upload at least one PDF report.")
 
         model_mode = request.form.get("model_mode", "default")
-        provider_name = "default" if model_mode == "default" else request.form.get("llm_provider", "openai")
+        default_model = request.form.get("default_model", "builtin")
+        if model_mode == "api":
+            provider_name = request.form.get("llm_provider", "openai")
+        elif default_model == "builtin":
+            provider_name = "default"
+        elif default_model == "qwen3-4b":
+            provider_name = "local-qwen"
+        else:
+            provider_name = "local"
         api_key = request.form.get("api_key") or None
         model = request.form.get("model") or None
-        local_model = None
+        local_model = request.form.get("default_model_path") or None
 
         try:
             provider = make_provider(provider_name, api_key=api_key, model=model, local_model=local_model)
@@ -106,29 +174,27 @@ def create_app() -> Flask:
         zip_path = Path(shutil.make_archive(str(archive_base), "zip", output_dir))
         return render_template(
             "index.html",
-            summary=summary,
-            error=None,
-            dataset_preview=dataset_preview,
-            dataset_download_url=f"/download/{run_id}/dataset",
-            zip_download_url=f"/download/{run_id}/all",
-            local_models=local_models(),
-            openai_model_options=OPENAI_MODEL_OPTIONS,
-            claude_model_options=CLAUDE_MODEL_OPTIONS,
-            zip_size=zip_path.stat().st_size,
+            **template_context(
+                summary=summary,
+                error=None,
+                dataset_preview=dataset_preview,
+                dataset_download_url=f"/download/{run_id}/dataset",
+                zip_download_url=f"/download/{run_id}/all",
+                zip_size=zip_path.stat().st_size,
+            )
         )
 
     def _render_error(message: str):
         return (
             render_template(
                 "index.html",
-                summary=None,
-                error=message,
-                dataset_preview=None,
-                dataset_download_url=None,
-                zip_download_url=None,
-                local_models=local_models(),
-                openai_model_options=OPENAI_MODEL_OPTIONS,
-                claude_model_options=CLAUDE_MODEL_OPTIONS,
+                **template_context(
+                    summary=None,
+                    error=message,
+                    dataset_preview=None,
+                    dataset_download_url=None,
+                    zip_download_url=None,
+                )
             ),
             400,
         )

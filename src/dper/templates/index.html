@@ -44,8 +44,8 @@
               <label class="choice-card">
                 <input type="radio" name="model_mode" value="default" checked>
                 <span>
-                  <strong>Default Extractor</strong>
-                  <small>Built-in dictionary model, no API key</small>
+                  <strong>Default / Local</strong>
+                  <small>Regex-based and downloaded local models, no API key</small>
                 </span>
               </label>
               <label class="choice-card">
@@ -56,6 +56,22 @@
                 </span>
               </label>
             </div>
+          </fieldset>
+
+          <fieldset id="default-settings" class="default-settings">
+            <legend>2. Default Extractor Models</legend>
+            <div class="model-list">
+              {% for option in default_model_options %}
+              <label class="model-row {% if option.available == 'yes' %}ready{% else %}missing{% endif %}">
+                <input type="radio" name="default_model" value="{{ option.id }}" data-model-path="{{ option.value }}" {% if loop.first %}checked{% endif %}>
+                <span>
+                  <strong>{{ option.label }}</strong>
+                  <small>{{ option.detail }}</small>
+                </span>
+              </label>
+              {% endfor %}
+            </div>
+            <input type="hidden" name="default_model_path" id="default-model-path" value="">
           </fieldset>
 
           <fieldset id="api-settings" class="api-settings" hidden>
@@ -103,7 +119,7 @@
             </div>
             <label class="toggle">
               <input type="checkbox" name="redact" checked>
-              <span>Redact contact details before API calls</span>
+              <span>Redact contact details before model calls</span>
             </label>
           </fieldset>
 
@@ -159,12 +175,20 @@
 
     <script>
       const modeInputs = document.querySelectorAll('input[name="model_mode"]');
+      const defaultModelInputs = document.querySelectorAll('input[name="default_model"]');
       const providerInputs = document.querySelectorAll('input[name="llm_provider"]');
       const apiSettings = document.getElementById('api-settings');
+      const defaultSettings = document.getElementById('default-settings');
+      const defaultModelPath = document.getElementById('default-model-path');
       const modelSelect = document.getElementById('model-select');
       function syncMode() {
         const selected = document.querySelector('input[name="model_mode"]:checked');
         apiSettings.hidden = !selected || selected.value !== 'api';
+        defaultSettings.hidden = !selected || selected.value === 'api';
+      }
+      function syncDefaultModel() {
+        const selected = document.querySelector('input[name="default_model"]:checked');
+        defaultModelPath.value = selected ? selected.dataset.modelPath || '' : '';
       }
       function syncProvider() {
         const selected = document.querySelector('input[name="llm_provider"]:checked');
@@ -181,8 +205,10 @@
         }
       }
       modeInputs.forEach((input) => input.addEventListener('change', syncMode));
+      defaultModelInputs.forEach((input) => input.addEventListener('change', syncDefaultModel));
       providerInputs.forEach((input) => input.addEventListener('change', syncProvider));
       syncMode();
+      syncDefaultModel();
       syncProvider();
     </script>
   </body>

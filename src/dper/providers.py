@@ -9,6 +9,8 @@ from typing import Any
 
 import requests
 
+from .local_models import QWEN3_4B_MODEL_ID, default_qwen_model_path
+
 
 class ProviderError(RuntimeError):
     pass
@@ -93,21 +95,75 @@ class ClaudeProvider(LLMProvider):
 
 
 class LocalGGUFProvider(LLMProvider):
-    def __init__(self, model_path: str | Path, model: str | None = None, n_ctx: int = 8192):
+    def __init__(
+        self,
+        model_path: str | Path,
+        model: str | None = None,
+        n_ctx: int = 16384,
+        max_tokens: int = 4096,
+        temperature: float = 0.2,
+        top_p: float = 0.8,
+    ):
         super().__init__(model or str(model_path))
         try:
             from llama_cpp import Llama
         except Exception as exc:  # pragma: no cover - optional dependency
-            raise ProviderError("Local GGUF mode requires llama-cpp-python. Install with: pip install .[local]") from exc
-        path = Path(model_path)
+            raise ProviderError('Local GGUF mode requires llama-cpp-python. Install with: python -m pip install -e ".[local]"') from exc
+        path = Path(model_path).expanduser()
         if not path.exists():
-            raise ProviderError(f"Local model file not found: {path}")
+            raise ProviderError(
+                f"Local model file not found: {path}\n"
+                "Download the recommended Qwen3 4B model with: dper-download-qwen3"
+            )
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.top_p = top_p
         self.llm = Llama(model_path=str(path), n_ctx=n_ctx, verbose=False)
 
     def generate(self, system_prompt: str, user_prompt: str) -> str:
-        prompt = f"<|system|>\n{system_prompt}\n<|user|>\n{user_prompt}\n<|assistant|>\n"
-        result = self.llm(prompt, max_tokens=4096, temperature=0.0, stop=["<|user|>", "<|system|>"])
-        return result["choices"][0]["text"]
+        qwen_user_prompt = f"{user_prompt}\n\n/no_think\nReturn exactly one JSON object and no Markdown."
+        try:
+            try:
+                result = self.llm.create_chat_completion(
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": qwen_user_prompt},
+                    ],
+                    max_tokens=self.max_tokens,
+                    temperature=self.temperature,
+                    top_p=self.top_p,
+                    response_format={"type": "json_object"},
+                )
+            except TypeError:
+                result = self.llm.create_chat_completion(
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": qwen_user_prompt},
+                    ],
+                    max_tokens=self.max_tokens,
+                    temperature=self.temperature,
+                    top_p=self.top_p,
+                )
+            text = result["choices"][0]["message"]["content"]
+        except Exception:
+            prompt = (
+                f"<|im_start|>system\n{system_prompt}<|im_end|>\n"
+                f"<|im_start|>user\n{qwen_user_prompt}<|im_end|>\n"
+                "<|im_start|>assistant\n"
+            )
+            result = self.llm(
+                prompt,
+                max_tokens=self.max_tokens,
+                temperature=self.temperature,
+                top_p=self.top_p,
+                stop=["<|im_end|>", "<|im_start|>"],
+            )
+            text = result["choices"][0]["text"]
+        return self._strip_reasoning(text)
+
+    def _strip_reasoning(self, text: str) -> str:
+        text = re.sub(r"(?is)^\s*<think>.*?</think>", "", text or "").strip()
+        return text
 
 
 class DryRunProvider(LLMProvider):
@@ -332,6 +388,8 @@ def make_provider(provider: str, api_key: str | None = None, model: str | None =
         return OpenAIProvider(api_key=api_key, model=model)
     if provider in {"claude", "anthropic"}:
         return ClaudeProvider(api_key=api_key, model=model)
+    if provider in {"local-qwen", "qwen", "qwen3", "qwen3-4b"}:
+        return LocalGGUFProvider(local_model or default_qwen_model_path(), model=model or QWEN3_4B_MODEL_ID)
     if provider in {"local", "gguf", "llama"}:
         if not local_model:
             raise ProviderError("Local provider requires --local-model pointing to a .gguf file.")

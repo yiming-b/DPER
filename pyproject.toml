@@ -23,6 +23,7 @@ dev = ["pytest>=8.0"]
 [project.scripts]
 dper-extract = "dper.cli:main"
 dper-web = "dper.web_app:main"
+dper-download-qwen3 = "dper.download_qwen3:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -29,6 +29,12 @@ type Provider = "openai" | "claude";
 type Mode = "default" | "api";
 type ReportText = { fileName: string; text: string; pageCount: number };
 type DatasetRow = Record<string, string>;
+type DefaultExtractorOption = {
+  id: string;
+  label: string;
+  detail: string;
+  availability: string;
+};
 
 const MODEL_OPTIONS: Record<Provider, { id: string; label: string }[]> = {
   openai: [
@@ -47,6 +53,27 @@ const DEFAULT_MODEL_BY_PROVIDER: Record<Provider, string> = {
   openai: "gpt-5.6-luna",
   claude: "claude-sonnet-5",
 };
+
+const DEFAULT_EXTRACTOR_OPTIONS: DefaultExtractorOption[] = [
+  {
+    id: "regex-dictionary",
+    label: "Regex/dictionary extractor",
+    detail: "Runs directly in this browser app. Fast, no API key, no model download.",
+    availability: "Available here",
+  },
+  {
+    id: "qwen3-4b-q4km",
+    label: "Qwen3 4B Q4_K_M",
+    detail: "Runs through the local DPER Python backend after dper-download-qwen3. No OpenAI, Claude, or Hugging Face key is needed for this public Qwen download.",
+    availability: "Local backend",
+  },
+  {
+    id: "downloaded-gguf",
+    label: "Downloaded GGUF models",
+    detail: "The local Python UI detects .gguf files placed in models/. The public hosted page cannot inspect files on a user's computer.",
+    availability: "Local backend",
+  },
+];
 
 function csvEscape(value: string) {
   const text = value ?? "";
@@ -260,8 +287,8 @@ export default function Home() {
   const removedDuplicateDefaults = selectedDefaultPhenotypes.length - defaultPhenotypesInOutput.length;
   const isCustomPhenotypeList = customPhenotypes.length > 0;
   const canDownload = rows.length > 0 && columns.length > 0;
-  const phenotypeStep = mode === "api" ? "3" : "2";
-  const fileStep = mode === "api" ? "4" : "3";
+  const phenotypeStep = "3";
+  const fileStep = "4";
   const modelOptions = MODEL_OPTIONS[provider];
   const selectedModel = modelOptions.some((option) => option.id === model) ? model : DEFAULT_MODEL_BY_PROVIDER[provider];
 
@@ -376,7 +403,7 @@ export default function Home() {
             <div className="choice-grid">
               <label className="choice-card" htmlFor="mode-default" aria-label="Default Extractor">
                 <input id="mode-default" type="radio" name="mode" checked={mode === "default"} onChange={() => setMode("default")} />
-                <span><strong>Default Extractor</strong><small>Built-in dictionary extraction with dated phenotype cells</small></span>
+                <span><strong>Default Extractor</strong><small>Regex-based and local model options</small></span>
               </label>
               <label className="choice-card" htmlFor="mode-api" aria-label="Plug In LLM">
                 <input id="mode-api" type="radio" name="mode" checked={mode === "api"} onChange={() => setMode("api")} />
@@ -384,6 +411,26 @@ export default function Home() {
               </label>
             </div>
           </fieldset>
+
+          {mode === "default" && (
+            <fieldset>
+              <legend>2. Default / Local Models</legend>
+              <div className="model-list">
+                {DEFAULT_EXTRACTOR_OPTIONS.map((option, index) => (
+                  <div className={`model-row${index === 0 ? " active" : ""}`} key={option.id}>
+                    <span>
+                      <strong>{option.label}</strong>
+                      <small>{option.detail}</small>
+                    </span>
+                    <em>{option.availability}</em>
+                  </div>
+                ))}
+              </div>
+              <p className="helper-text compact-note">
+                This hosted page uses the regex/dictionary extractor for default runs. Downloaded Qwen or other GGUF models run in the local Python website at 127.0.0.1:7860.
+              </p>
+            </fieldset>
+          )}
 
           {mode === "api" && (
             <fieldset>
