@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DPER</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>DPER</h1>
+          <p>Dog phenotype extraction from veterinary PDF reports</p>
+        </div>
+        <div class="status-pill">CSV Output</div>
+      </header>
+
+      {% if error %}
+      <section class="notice error">{{ error }}</section>
+      {% endif %}
+
+      {% if summary %}
+      <section class="notice success">
+        <div>
+          <strong>{{ summary.reports_processed }}</strong> report{% if summary.reports_processed != 1 %}s{% endif %} processed with {{ summary.provider }}.
+        </div>
+        {% if download_url %}
+        <a class="button primary" href="{{ download_url }}">Download CSVs</a>
+        {% endif %}
+      </section>
+      {% endif %}
+
+      <section class="workspace">
+        <form class="control-panel" method="post" action="/extract" enctype="multipart/form-data">
+          <fieldset>
+            <legend>Model</legend>
+            <div class="segmented">
+              <label><input type="radio" name="provider" value="openai" checked><span>OpenAI</span></label>
+              <label><input type="radio" name="provider" value="claude"><span>Claude</span></label>
+              <label><input type="radio" name="provider" value="local"><span>Local</span></label>
+            </div>
+            <label class="field">
+              <span>API key</span>
+              <input type="password" name="api_key" autocomplete="off" placeholder="Not stored">
+            </label>
+            <label class="field">
+              <span>Model id</span>
+              <input type="text" name="model" value="{{ default_openai_model }}" placeholder="{{ default_claude_model }}">
+            </label>
+            <label class="field">
+              <span>Local model</span>
+              <select name="local_model">
+                <option value="">No local model detected</option>
+                {% for model in local_models %}
+                <option value="{{ model }}">{{ model.name }}</option>
+                {% endfor %}
+              </select>
+            </label>
+          </fieldset>
+
+          <fieldset>
+            <legend>Reports</legend>
+            <label class="dropzone">
+              <input type="file" name="reports" accept="application/pdf,.pdf" multiple required>
+              <span>Select PDF reports</span>
+            </label>
+          </fieldset>
+
+          <fieldset>
+            <legend>Extraction</legend>
+            <div class="grid-two">
+              <label class="field">
+                <span>Chunk chars</span>
+                <input type="number" name="chunk_chars" min="4000" max="60000" step="1000" value="18000">
+              </label>
+              <label class="field">
+                <span>Dictionary rows</span>
+                <input type="number" name="max_dictionary_rows" min="20" max="300" step="10" value="120">
+              </label>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" name="redact" checked>
+              <span>Redact contact details before API calls</span>
+            </label>
+          </fieldset>
+
+          <button class="button primary" type="submit">Run Extraction</button>
+        </form>
+
+        <aside class="output-panel">
+          <h2>Run Tables</h2>
+          <div class="table-list">
+            <div><span>dog_summary.csv</span><strong>{{ summary.tables['dog_summary.csv'] if summary else 0 }}</strong></div>
+            <div><span>visit_summary.csv</span><strong>{{ summary.tables['visit_summary.csv'] if summary else 0 }}</strong></div>
+            <div><span>phenotype_events.csv</span><strong>{{ summary.tables['phenotype_events.csv'] if summary else 0 }}</strong></div>
+            <div><span>lab_results.csv</span><strong>{{ summary.tables['lab_results.csv'] if summary else 0 }}</strong></div>
+            <div><span>diagnostic_events.csv</span><strong>{{ summary.tables['diagnostic_events.csv'] if summary else 0 }}</strong></div>
+            <div><span>medication_events.csv</span><strong>{{ summary.tables['medication_events.csv'] if summary else 0 }}</strong></div>
+            <div><span>procedure_events.csv</span><strong>{{ summary.tables['procedure_events.csv'] if summary else 0 }}</strong></div>
+            <div><span>new_candidate_phenotypes.csv</span><strong>{{ summary.tables['new_candidate_phenotypes.csv'] if summary else 0 }}</strong></div>
+          </div>
+        </aside>
+      </section>
+    </main>
+  </body>
+</html>

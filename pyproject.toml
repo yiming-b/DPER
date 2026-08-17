@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dper"
+version = "0.1.0"
+description = "Dog phenotype extraction from heterogeneous veterinary PDF reports."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "DPER contributors" }]
+dependencies = [
+    "Flask>=3.0",
+    "pdfplumber>=0.11",
+    "pypdf>=5.0",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+local = ["llama-cpp-python>=0.3"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+dper-extract = "dper.cli:main"
+dper-web = "dper.web_app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

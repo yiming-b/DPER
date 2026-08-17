@@ -1,0 +1,29 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Private report inputs and derived patient-level outputs.
+dog_reports/
+data/
+tmp/
+web_runs/
+uploads/
+scripts/build_dataset.py
+docs/phenotype_extraction_system.md
+docs/dataset_pipeline_usage.md
+models/*.gguf
+models/*.bin
+models/*.safetensors
+
+# Keep reusable schemas but not local report inventories with private paths.
+schemas/report_inventory.csv
+
+# OS/editor noise.
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

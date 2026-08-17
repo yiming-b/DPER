@@ -1,0 +1,61 @@
+{
+  "version": "0.1.0",
+  "created_from": "dog_reports sample PDFs in this workspace",
+  "dictionary_file": "schemas/phenotype_dictionary.csv",
+  "recommended_output_tables": {
+    "dog_summary": "One row per dog; stable identity, demographics, source metadata, and optional derived latest/ever summary flags.",
+    "visit_summary": "One row per visit, note, procedure, test date, or discharge date with vitals, diet/exposure context, and body-system exam summaries.",
+    "phenotype_events": "One row per phenotype assertion using phenotype_dictionary.csv phenotype_id and assertion status.",
+    "lab_results": "One row per analyte result with value, unit, reference range, flag, specimen, panel, date, and evidence.",
+    "diagnostic_events": "One row per imaging, pathology, cytology, culture, infectious-test, or other diagnostic event.",
+    "medication_events": "Medication and supplement context with date/status when available.",
+    "procedure_events": "Procedures including surgery, dental work, wound/bandage care, vaccination, rehab, and acupuncture."
+  },
+  "assertion_status_values": [
+    "present",
+    "absent",
+    "suspected",
+    "rule_out",
+    "historical",
+    "resolved",
+    "normal",
+    "abnormal",
+    "not_reported"
+  ],
+  "common_event_columns": [
+    "dog_id",
+    "event_id",
+    "visit_id",
+    "visit_date",
+    "phenotype_id",
+    "status",
+    "value_raw",
+    "value_normalized",
+    "unit",
+    "body_site",
+    "laterality",
+    "severity",
+    "duration",
+    "onset_date",
+    "resolved_date",
+    "temporality",
+    "negation",
+    "source_sentence",
+    "source_file",
+    "page_number",
+    "confidence",
+    "needs_review",
+    "schema_version"
+  ],
+  "rules": [
+    "Do not treat rule-outs as confirmed diagnoses.",
+    "Use not_reported for fields absent from a report; do not infer normality from silence.",
+    "Use absent only when the report explicitly negates a phenotype.",
+    "Use historical or resolved when a condition is described as past or no longer active.",
+    "For repeated values, keep event rows and optionally derive latest or ever summary columns downstream.",
+    "Retain raw source text and a short evidence quote for audit.",
+    "Use OCR with orientation correction for scanned or sparse PDFs before LLM extraction.",
+    "Do not export owner phone, address, or owner name in phenotype tables unless a separate consented linkage workflow requires it.",
+    "Medication exposure is context; do not convert it into a diagnosis unless the source explicitly states the diagnosis."
+  ]
+}

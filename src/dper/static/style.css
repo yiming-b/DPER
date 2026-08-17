@@ -1,0 +1,284 @@
+:root {
+  --bg: #f5f7f9;
+  --ink: #16202a;
+  --muted: #5a6672;
+  --line: #d8dee5;
+  --panel: #ffffff;
+  --accent: #28666e;
+  --accent-dark: #1f4e55;
+  --success: #e7f4ea;
+  --success-ink: #1f5f38;
+  --error: #fdebea;
+  --error-ink: #8a231f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 16px;
+}
+
+.shell {
+  width: min(1180px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 28px 0 40px;
+}
+
+.topbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 34px;
+  line-height: 1.1;
+  letter-spacing: 0;
+}
+
+h2 {
+  font-size: 18px;
+  margin-bottom: 16px;
+}
+
+.topbar p {
+  margin-top: 6px;
+  color: var(--muted);
+}
+
+.status-pill {
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  border-radius: 6px;
+  color: var(--muted);
+  background: var(--panel);
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 24px;
+  margin-top: 24px;
+  align-items: start;
+}
+
+.control-panel,
+.output-panel,
+.notice {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.control-panel {
+  padding: 22px;
+}
+
+.output-panel {
+  padding: 22px;
+}
+
+fieldset {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 0 0 22px;
+  padding: 18px 0 0;
+}
+
+fieldset:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+legend {
+  padding: 0 8px 0 0;
+  font-weight: 700;
+}
+
+.segmented {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.segmented label {
+  display: block;
+}
+
+.segmented input {
+  position: absolute;
+  opacity: 0;
+}
+
+.segmented span {
+  display: block;
+  text-align: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.segmented input:checked + span {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.field {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 14px;
+}
+
+.field span,
+.toggle span {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="number"],
+select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 11px;
+  font: inherit;
+  background: #fff;
+  color: var(--ink);
+}
+
+.dropzone {
+  display: grid;
+  place-items: center;
+  min-height: 112px;
+  border: 1px dashed #aab5bf;
+  border-radius: 8px;
+  background: #f9fbfc;
+  cursor: pointer;
+}
+
+.dropzone input {
+  width: min(100%, 320px);
+}
+
+.dropzone span {
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+.grid-two {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 16px;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button.primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.button.primary:hover {
+  background: var(--accent-dark);
+}
+
+.notice {
+  margin-top: 18px;
+  padding: 14px 16px;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+
+.notice.success {
+  background: var(--success);
+  color: var(--success-ink);
+}
+
+.notice.error {
+  background: var(--error);
+  color: var(--error-ink);
+}
+
+.table-list {
+  display: grid;
+  gap: 8px;
+}
+
+.table-list div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.table-list div:last-child {
+  border-bottom: 0;
+}
+
+.table-list span {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+
+.table-list strong {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 860px) {
+  .topbar,
+  .workspace {
+    display: block;
+  }
+
+  .status-pill,
+  .output-panel {
+    margin-top: 18px;
+  }
+
+  .grid-two,
+  .segmented {
+    grid-template-columns: 1fr;
+  }
+}
