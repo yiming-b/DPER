@@ -6,6 +6,26 @@ from pathlib import Path
 
 from .utils import norm_space
 
+COMMON_EVENT_FIELD_IDS = {
+    "dog_id",
+    "event_id",
+    "status",
+    "value_raw",
+    "value_normalized",
+    "body_site",
+    "laterality",
+    "severity",
+    "duration",
+    "onset_date",
+    "resolved_date",
+    "temporality",
+    "negation",
+    "source_sentence",
+    "page_number",
+    "confidence",
+    "needs_review",
+}
+
 
 def default_dictionary_path() -> Path:
     cwd_path = Path.cwd() / "schemas" / "phenotype_dictionary.csv"
@@ -18,6 +38,17 @@ def load_dictionary(path: Path | None = None) -> list[dict[str, str]]:
     path = path or default_dictionary_path()
     with path.open(newline="", encoding="utf-8-sig") as f:
         return [dict(row) for row in csv.DictReader(f)]
+
+
+def is_extractable_phenotype_row(row: dict[str, str]) -> bool:
+    phenotype_id = row.get("phenotype_id", "")
+    return bool(
+        row.get("target_table") == "phenotype_events"
+        and row.get("category") != "common_event_columns"
+        and phenotype_id not in COMMON_EVENT_FIELD_IDS
+        and phenotype_id
+        and row.get("data_type", "event") in {"", "event"}
+    )
 
 
 def _terms(row: dict[str, str]) -> set[str]:
@@ -46,7 +77,7 @@ def select_dictionary_subset(rows: list[dict[str, str]], chunk_text: str, max_ro
         if label and len(label) > 3 and label in text:
             score += 8
         score += sum(1 for term in _terms(row) if term in text)
-        if row.get("target_table") == "phenotype_events":
+        if is_extractable_phenotype_row(row):
             score += 1
         if score:
             scored.append((score, row))
@@ -55,7 +86,7 @@ def select_dictionary_subset(rows: list[dict[str, str]], chunk_text: str, max_ro
     selected = [row for _, row in scored[:max_rows]]
     if selected:
         return selected
-    return [row for row in rows if row.get("target_table") == "phenotype_events"][:max_rows]
+    return [row for row in rows if is_extractable_phenotype_row(row)][:max_rows]
 
 
 def compact_dictionary_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:

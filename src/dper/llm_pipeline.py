@@ -37,6 +37,7 @@ class RunConfig:
     chunk_chars: int = 18000
     max_dictionary_rows: int = 120
     redact: bool = True
+    dataset_identity_columns: list[str] | None = None
 
 
 def write_csv(path: Path, rows: list[dict[str, Any]], columns: list[str], append: bool = False) -> None:
@@ -458,7 +459,7 @@ def run_extraction(config: RunConfig) -> dict[str, Any]:
     for table_name, columns in TABLE_COLUMNS.items():
         write_csv(config.output_dir / table_name, all_rows[table_name], columns, append=config.append)
 
-    dataset_path = build_dataset_csv(config.output_dir, config.dictionary_path)
+    dataset_path = build_dataset_csv(config.output_dir, config.dictionary_path, config.dataset_identity_columns)
     combined_manifest = existing_manifest + run_manifest
     (config.output_dir / "run_manifest.json").write_text(json.dumps(combined_manifest, indent=2), encoding="utf-8")
 

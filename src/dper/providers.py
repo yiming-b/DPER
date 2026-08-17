@@ -9,6 +9,7 @@ from typing import Any
 
 import requests
 
+from .dictionary import is_extractable_phenotype_row
 from .local_models import QWEN3_4B_MODEL_ID, default_qwen_model_path
 
 
@@ -317,7 +318,7 @@ class DefaultPhenotypeProvider(LLMProvider):
         events: list[dict[str, Any]] = []
         seen: set[str] = set()
         for row in dictionary_rows:
-            if row.get("target_table") != "phenotype_events":
+            if not is_extractable_phenotype_row(row):
                 continue
             phenotype_id = row.get("phenotype_id", "")
             label = row.get("field_or_phenotype", "")

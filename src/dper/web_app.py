@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import os
+import csv
+import re
 import shutil
 import uuid
 from pathlib import Path
 
 from flask import Flask, abort, render_template, request, send_file
 
-from .dataset import preview_csv
+from .dataset import WEB_IDENTITY_COLUMNS, preview_csv
+from .dictionary import is_extractable_phenotype_row, load_dictionary
 from .llm_pipeline import RunConfig, run_extraction
 from .local_models import QWEN3_4B_MODEL_ID, default_qwen_model_path
 from .providers import ProviderError, make_provider
@@ -24,6 +27,34 @@ CLAUDE_MODEL_OPTIONS = [
     {"id": "claude-opus-5", "label": "Claude Opus 5 - highest quality"},
 ]
 
+IDENTITY_FIELD_LABELS = {
+    "dog_id": "dog_id",
+    "source_file": "source_file",
+    "dog_name": "dog_name",
+    "species": "species",
+    "breed_raw": "breed",
+    "sex": "sex",
+    "reproductive_status": "reproductive_status",
+    "date_of_birth": "date_of_birth",
+    "coat_color": "color",
+    "weight_lb": "weight_lb",
+    "weight_kg": "weight_kg",
+    "visit_dates": "visit_dates",
+}
+
+DICTIONARY_FIELDNAMES = [
+    "phenotype_id",
+    "target_table",
+    "category",
+    "field_or_phenotype",
+    "data_type",
+    "allowed_values_or_format",
+    "unit",
+    "description",
+    "examples_observed_in_reports",
+    "extraction_notes",
+]
+
 
 def repo_root() -> Path:
     return Path.cwd()
@@ -34,6 +65,158 @@ def local_models() -> list[Path]:
     if not models_dir.exists():
         return []
     return sorted(models_dir.glob("*.gguf"))
+
+
+def slug(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
+
+
+def parse_custom_phenotypes(text: str) -> list[dict[str, str]]:
+    seen: set[str] = set()
+    entries: list[dict[str, str]] = []
+    for raw in re.split(r"[\n,]+", text):
+        label = re.sub(r"^\s*(?:[-*]|\d+[.)])\s*", "", raw).strip()
+        label = re.sub(r"\s+", " ", label)
+        phenotype_id = slug(label)
+        if not label or not phenotype_id or phenotype_id in seen:
+            continue
+        seen.add(phenotype_id)
+        entries.append({"id": phenotype_id, "label": label})
+    return entries
+
+
+def default_phenotype_rows() -> list[dict[str, str]]:
+    rows = []
+    seen: set[str] = set()
+    for row in load_dictionary():
+        if not is_extractable_phenotype_row(row):
+            continue
+        phenotype_id = row.get("phenotype_id", "")
+        if phenotype_id in seen:
+            continue
+        seen.add(phenotype_id)
+        rows.append(row)
+    return rows
+
+
+def identity_options(selected: list[str] | None = None) -> list[dict[str, object]]:
+    selected_set = set(WEB_IDENTITY_COLUMNS if selected is None else selected)
+    return [
+        {
+            "id": column,
+            "label": IDENTITY_FIELD_LABELS.get(column, column),
+            "selected": column in selected_set,
+        }
+        for column in WEB_IDENTITY_COLUMNS
+    ]
+
+
+def phenotype_options(selected: list[str] | None = None, custom_ids: set[str] | None = None) -> list[dict[str, object]]:
+    default_rows = default_phenotype_rows()
+    selected_set = {row.get("phenotype_id", "") for row in default_rows} if selected is None else set(selected)
+    custom_ids = custom_ids or set()
+    return [
+        {
+            "id": row.get("phenotype_id", ""),
+            "label": row.get("field_or_phenotype", row.get("phenotype_id", "")),
+            "category": row.get("category", ""),
+            "selected": row.get("phenotype_id", "") in selected_set and row.get("phenotype_id", "") not in custom_ids,
+            "duplicate": row.get("phenotype_id", "") in custom_ids,
+        }
+        for row in default_rows
+    ]
+
+
+def selected_identity_columns_from_form() -> list[str]:
+    selected = request.form.getlist("identity_fields")
+    allowed = set(WEB_IDENTITY_COLUMNS)
+    return [column for column in WEB_IDENTITY_COLUMNS if column in allowed and column in selected]
+
+
+def selected_default_phenotype_ids_from_form(custom_ids: set[str]) -> list[str]:
+    selected = set(request.form.getlist("default_phenotypes"))
+    available = [row.get("phenotype_id", "") for row in default_phenotype_rows()]
+    return [phenotype_id for phenotype_id in available if phenotype_id in selected and phenotype_id not in custom_ids]
+
+
+def custom_phenotype_text_from_request() -> str:
+    text = request.form.get("custom_phenotypes", "")
+    uploaded = request.files.get("custom_phenotype_file")
+    if uploaded and uploaded.filename:
+        try:
+            file_text = uploaded.stream.read().decode("utf-8-sig", errors="replace")
+        except Exception:
+            file_text = ""
+        text = "\n".join(part for part in [text, file_text] if part.strip())
+    return text
+
+
+def write_selected_dictionary(
+    *,
+    target: Path,
+    selected_default_ids: list[str],
+    custom_phenotypes: list[dict[str, str]],
+) -> None:
+    source_rows = load_dictionary()
+    default_rows_by_id = {
+        row.get("phenotype_id", ""): row
+        for row in source_rows
+        if is_extractable_phenotype_row(row)
+    }
+    rows = [row for row in source_rows if not is_extractable_phenotype_row(row)]
+    custom_ids = {item["id"] for item in custom_phenotypes}
+    for item in custom_phenotypes:
+        rows.append(
+            {
+                "phenotype_id": item["id"],
+                "target_table": "phenotype_events",
+                "category": "custom",
+                "field_or_phenotype": item["label"],
+                "data_type": "event",
+                "allowed_values_or_format": "present|suspected|rule_out|historical|resolved|abnormal|not_reported",
+                "unit": "",
+                "description": f"User-provided phenotype: {item['label']}",
+                "examples_observed_in_reports": item["label"],
+                "extraction_notes": "Added from local web UI for this run.",
+            }
+        )
+    for phenotype_id in selected_default_ids:
+        if phenotype_id in custom_ids:
+            continue
+        row = default_rows_by_id.get(phenotype_id)
+        if row:
+            rows.append(row)
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = list(source_rows[0].keys()) if source_rows else DICTIONARY_FIELDNAMES
+    with target.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+
+
+def form_state(
+    *,
+    selected_identity_columns: list[str] | None = None,
+    selected_default_phenotype_ids: list[str] | None = None,
+    custom_phenotype_text: str = "",
+) -> dict[str, object]:
+    custom_phenotypes = parse_custom_phenotypes(custom_phenotype_text)
+    custom_ids = {item["id"] for item in custom_phenotypes}
+    default_options = phenotype_options(selected_default_phenotype_ids, custom_ids)
+    active_default_count = sum(1 for option in default_options if option["selected"])
+    duplicate_count = sum(1 for option in default_options if option["duplicate"])
+    return {
+        "identity_options": identity_options(selected_identity_columns),
+        "phenotype_options": default_options,
+        "custom_phenotype_text": custom_phenotype_text,
+        "custom_phenotypes": custom_phenotypes,
+        "custom_phenotype_count": len(custom_phenotypes),
+        "active_default_phenotype_count": active_default_count,
+        "duplicate_default_phenotype_count": duplicate_count,
+        "final_phenotype_count": len(custom_phenotypes) + active_default_count,
+    }
 
 
 def default_model_options() -> list[dict[str, str]]:
@@ -102,6 +285,7 @@ def template_context(**overrides) -> dict[str, object]:
         "qwen_model_present": default_qwen_model_path(repo_root()).exists(),
         "openai_model_options": OPENAI_MODEL_OPTIONS,
         "claude_model_options": CLAUDE_MODEL_OPTIONS,
+        **form_state(),
     }
     context.update(overrides)
     return context
@@ -162,6 +346,24 @@ def create_app() -> Flask:
         api_key = request.form.get("api_key") or None
         model = request.form.get("model") or None
         local_model = request.form.get("default_model_path") or None
+        custom_phenotype_text = custom_phenotype_text_from_request()
+        custom_phenotypes = parse_custom_phenotypes(custom_phenotype_text)
+        custom_ids = {item["id"] for item in custom_phenotypes}
+        selected_identity_columns = selected_identity_columns_from_form()
+        selected_default_phenotype_ids = selected_default_phenotype_ids_from_form(custom_ids)
+        if not selected_identity_columns and not selected_default_phenotype_ids and not custom_phenotypes:
+            return _render_error(
+                "Select identity fields, default phenotypes, or enter a custom phenotype list.",
+                selected_identity_columns=selected_identity_columns,
+                selected_default_phenotype_ids=selected_default_phenotype_ids,
+                custom_phenotype_text=custom_phenotype_text,
+            )
+        selected_dictionary = run_dir / "phenotype_dictionary.selected.csv"
+        write_selected_dictionary(
+            target=selected_dictionary,
+            selected_default_ids=selected_default_phenotype_ids,
+            custom_phenotypes=custom_phenotypes,
+        )
 
         try:
             provider = make_provider(provider_name, api_key=api_key, model=model, local_model=local_model)
@@ -170,14 +372,21 @@ def create_app() -> Flask:
                     input_path=upload_dir,
                     output_dir=output_dir,
                     provider=provider,
+                    dictionary_path=selected_dictionary,
                     append=False,
                     chunk_chars=int(request.form.get("chunk_chars") or 18000),
                     max_dictionary_rows=int(request.form.get("max_dictionary_rows") or 120),
                     redact=request.form.get("redact", "on") == "on",
+                    dataset_identity_columns=selected_identity_columns,
                 )
             )
         except (ProviderError, ValueError, RuntimeError) as exc:
-            return _render_error(str(exc))
+            return _render_error(
+                str(exc),
+                selected_identity_columns=selected_identity_columns,
+                selected_default_phenotype_ids=selected_default_phenotype_ids,
+                custom_phenotype_text=custom_phenotype_text,
+            )
 
         dataset_path = output_dir / "dataset.csv"
         dataset_preview = preview_csv(dataset_path)
@@ -192,10 +401,21 @@ def create_app() -> Flask:
                 dataset_download_url=f"/download/{run_id}/dataset",
                 zip_download_url=f"/download/{run_id}/all",
                 zip_size=zip_path.stat().st_size,
+                **form_state(
+                    selected_identity_columns=selected_identity_columns,
+                    selected_default_phenotype_ids=selected_default_phenotype_ids,
+                    custom_phenotype_text=custom_phenotype_text,
+                ),
             )
         )
 
-    def _render_error(message: str):
+    def _render_error(
+        message: str,
+        *,
+        selected_identity_columns: list[str] | None = None,
+        selected_default_phenotype_ids: list[str] | None = None,
+        custom_phenotype_text: str = "",
+    ):
         return (
             render_template(
                 "index.html",
@@ -205,6 +425,11 @@ def create_app() -> Flask:
                     dataset_preview=None,
                     dataset_download_url=None,
                     zip_download_url=None,
+                    **form_state(
+                        selected_identity_columns=selected_identity_columns,
+                        selected_default_phenotype_ids=selected_default_phenotype_ids,
+                        custom_phenotype_text=custom_phenotype_text,
+                    ),
                 )
             ),
             400,

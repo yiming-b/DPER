@@ -151,12 +151,16 @@ http://127.0.0.1:7860
 In the local UI:
 
 1. Use the default/local extractor list. Qwen3 4B is selected automatically when it has been downloaded.
-2. Upload one or more PDF reports.
-3. Generate `dataset.csv`.
-4. Preview `dataset.csv` in the page and download it directly.
-5. Use OpenAI or Claude only if you want an API-backed run.
+2. Select the default identity fields and default phenotype columns to include.
+3. Optionally paste or upload a `.txt` phenotype list. Use one phenotype per line or separate entries with commas; custom phenotype columns appear before defaults and duplicate defaults are removed.
+4. Upload one or more PDF reports.
+5. Generate `dataset.csv`.
+6. Preview `dataset.csv` in the page and download it directly.
+7. Use OpenAI or Claude only if you want an API-backed run.
 
 The UI redacts common phone numbers, emails, and simple street-address patterns before model calls by default.
+
+Local Qwen runs happen inside the Python backend, not inside the browser. The page shows a running message after submission; a Qwen run can take several minutes per report depending on CPU/RAM and report length.
 
 ## Run From CLI
 

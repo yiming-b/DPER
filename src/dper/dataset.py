@@ -4,7 +4,7 @@ import csv
 from pathlib import Path
 from typing import Any
 
-from .dictionary import load_dictionary
+from .dictionary import is_extractable_phenotype_row, load_dictionary
 
 STATUS_PRIORITY = {
     "present": 90,
@@ -38,6 +38,26 @@ BASE_COLUMNS = [
     "new_candidate_phenotype_count",
 ]
 
+WEB_IDENTITY_COLUMNS = [
+    "dog_id",
+    "source_file",
+    "dog_name",
+    "species",
+    "breed_raw",
+    "sex",
+    "reproductive_status",
+    "date_of_birth",
+    "coat_color",
+    "weight_lb",
+    "weight_kg",
+    "visit_dates",
+]
+
+WEB_META_COLUMNS = [
+    "phenotype_event_count",
+    "new_candidate_phenotype_count",
+]
+
 
 def read_csv_rows(path: Path) -> list[dict[str, str]]:
     if not path.exists():
@@ -59,25 +79,69 @@ def _best_status(current: str, candidate: str) -> str:
     return candidate if STATUS_PRIORITY.get(candidate, 0) > STATUS_PRIORITY.get(current, 0) else current
 
 
-def build_dataset_csv(output_dir: Path, dictionary_path: Path | None = None) -> Path:
+def _unique_in_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    output: list[str] = []
+    for value in values:
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        output.append(value)
+    return output
+
+
+def _format_list(values: list[str]) -> str:
+    values = _unique_in_order([value for value in values if value])
+    if not values:
+        return ""
+    return values[0] if len(values) == 1 else "|".join(values)
+
+
+def _visit_rollups(visit_rows: list[dict[str, str]]) -> dict[str, dict[str, str]]:
+    by_dog: dict[str, dict[str, list[str]]] = {}
+    for visit in visit_rows:
+        dog_id = visit.get("dog_id", "")
+        if not dog_id:
+            continue
+        if dog_id not in by_dog:
+            by_dog[dog_id] = {"visit_dates": [], "weight_lb": [], "weight_kg": []}
+        by_dog[dog_id]["visit_dates"].append(visit.get("visit_date", ""))
+        by_dog[dog_id]["weight_lb"].append(visit.get("weight_lb", ""))
+        by_dog[dog_id]["weight_kg"].append(visit.get("weight_kg", ""))
+
+    return {
+        dog_id: {column: _format_list(values) for column, values in grouped.items()}
+        for dog_id, grouped in by_dog.items()
+    }
+
+
+def _dictionary_phenotype_ids(dictionary_rows: list[dict[str, str]]) -> list[str]:
+    return _unique_in_order(
+        [
+            row.get("phenotype_id", "")
+            for row in dictionary_rows
+            if is_extractable_phenotype_row(row)
+        ]
+    )
+
+
+def build_dataset_csv(output_dir: Path, dictionary_path: Path | None = None, identity_columns: list[str] | None = None) -> Path:
     dog_rows = read_csv_rows(output_dir / "dog_summary.csv")
+    visit_rows = read_csv_rows(output_dir / "visit_summary.csv")
     event_rows = read_csv_rows(output_dir / "phenotype_events.csv")
     candidate_rows = read_csv_rows(output_dir / "new_candidate_phenotypes.csv")
     dictionary_rows = load_dictionary(dictionary_path)
+    visit_rollups = _visit_rollups(visit_rows)
 
-    observed_ids = sorted({row.get("phenotype_id", "") for row in event_rows if row.get("phenotype_id")})
-    if not observed_ids:
-        observed_ids = sorted(
-            {
-                row.get("phenotype_id", "")
-                for row in dictionary_rows
-                if row.get("target_table") == "phenotype_events" and row.get("phenotype_id")
-            }
-        )
+    requested_ids = _dictionary_phenotype_ids(dictionary_rows)
+    event_ids = _unique_in_order([row.get("phenotype_id", "") for row in event_rows if row.get("phenotype_id")])
+    observed_ids = requested_ids + [phenotype_id for phenotype_id in event_ids if phenotype_id not in requested_ids]
+    columns_before_phenotypes = BASE_COLUMNS if identity_columns is None else _unique_in_order(identity_columns + WEB_META_COLUMNS)
 
     by_dog: dict[str, dict[str, Any]] = {}
     for dog in dog_rows:
-        row = {column: dog.get(column, "") for column in BASE_COLUMNS}
+        rollups = visit_rollups.get(dog.get("dog_id", ""), {})
+        row = {column: dog.get(column, rollups.get(column, "")) for column in columns_before_phenotypes}
         row["phenotype_event_count"] = "0"
         row["new_candidate_phenotype_count"] = "0"
         for phenotype_id in observed_ids:
@@ -105,7 +169,7 @@ def build_dataset_csv(output_dir: Path, dictionary_path: Path | None = None) -> 
         row["phenotype_event_count"] = str(counts.get(dog_id, 0))
         row["new_candidate_phenotype_count"] = str(candidate_counts.get(dog_id, 0))
 
-    columns = BASE_COLUMNS + observed_ids
+    columns = columns_before_phenotypes + observed_ids
     dataset_path = output_dir / "dataset.csv"
     write_csv_rows(dataset_path, list(by_dog.values()), columns)
     return dataset_path

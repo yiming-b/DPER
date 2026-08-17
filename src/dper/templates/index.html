@@ -10,8 +10,10 @@
     <main class="shell">
       <header class="topbar">
         <div>
-          <h1>DPER</h1>
-          <p>Dog phenotype extraction from veterinary PDF reports</p>
+          <h1 aria-label="Dog Phenotype Extractor from Report (DPER)">
+            <strong>D</strong>og <strong>P</strong>henotype <strong>E</strong>xtractor from <strong>R</strong>eport <span>(DPER)</span>
+          </h1>
+          <p>Upload dog veterinary PDFs, extract identity, demographics, dated phenotype fields, and download dataset.csv.</p>
         </div>
         <div class="status-pill">dataset.csv</div>
       </header>
@@ -37,7 +39,7 @@
       {% endif %}
 
       <section class="workspace">
-        <form class="control-panel" method="post" action="/extract" enctype="multipart/form-data">
+        <form class="control-panel" method="post" action="/extract" enctype="multipart/form-data" id="extract-form">
           <fieldset>
             <legend>1. Extraction Model</legend>
             <div class="choice-grid">
@@ -98,15 +100,74 @@
           </fieldset>
 
           <fieldset>
-            <legend>3. Dog PDF Reports</legend>
+            <legend>3. Output Columns</legend>
+            <p class="helper-text">
+              Custom phenotypes are for disease, procedure, behavior, or finding columns. Dog identity and demographic fields are controlled separately and owner information is not extracted.
+            </p>
+
+            <details class="default-fields" open>
+              <summary>Default identity fields</summary>
+              <div class="inline-actions">
+                <button class="text-button" type="button" data-select-group="identity_fields">Select all</button>
+                <button class="text-button" type="button" data-clear-group="identity_fields">Clear</button>
+              </div>
+              <div class="checkbox-list">
+                {% for option in identity_options %}
+                <label class="check-row">
+                  <input type="checkbox" name="identity_fields" value="{{ option.id }}" {% if option.selected %}checked{% endif %}>
+                  <span>{{ option.label }}</span>
+                </label>
+                {% endfor %}
+              </div>
+            </details>
+
+            <details class="default-fields" open>
+              <summary>Default phenotype list ({{ active_default_phenotype_count }} selected)</summary>
+              <div class="inline-actions">
+                <button class="text-button" type="button" data-select-group="default_phenotypes">Select all</button>
+                <button class="text-button" type="button" data-clear-group="default_phenotypes">Clear</button>
+              </div>
+              <div class="checkbox-list phenotype-scroll">
+                {% for option in phenotype_options %}
+                <label class="check-row {% if option.duplicate %}duplicate{% endif %}">
+                  <input type="checkbox" name="default_phenotypes" value="{{ option.id }}" {% if option.selected %}checked{% endif %} {% if option.duplicate %}disabled{% endif %}>
+                  <span>{{ option.id }}{% if option.duplicate %}<small>custom</small>{% endif %}</span>
+                </label>
+                {% endfor %}
+              </div>
+            </details>
+
+            <label class="field">
+              <span>User-input phenotype list</span>
+              <textarea name="custom_phenotypes" placeholder="vomiting&#10;heart murmur&#10;skin mass, weight loss">{{ custom_phenotype_text }}</textarea>
+            </label>
+            <div class="inline-actions">
+              <label class="file-action">
+                <span class="file-icon">+</span>
+                <span>Import .txt phenotype list</span>
+                <input type="file" name="custom_phenotype_file" accept=".txt,text/plain">
+              </label>
+              <button class="text-button" type="button" id="clear-custom-phenotypes">Clear custom list</button>
+            </div>
+            <p class="helper-text">
+              Final phenotype columns: {{ custom_phenotype_count }} custom + {{ active_default_phenotype_count }} default.
+              {% if duplicate_default_phenotype_count > 0 %}
+              {{ duplicate_default_phenotype_count }} duplicate default phenotype{% if duplicate_default_phenotype_count != 1 %}s{% endif %} removed because the custom list takes priority.
+              {% endif %}
+            </p>
+          </fieldset>
+
+          <fieldset>
+            <legend>4. Dog PDF Reports</legend>
             <label class="dropzone">
               <input type="file" name="reports" accept="application/pdf,.pdf" multiple required>
-              <span>Select multiple PDF files</span>
+              <span class="file-action visible-file-action"><span class="file-icon">+</span><span>Choose PDF files</span></span>
+              <small id="report-file-summary">Select multiple PDF files</small>
             </label>
           </fieldset>
 
           <fieldset>
-            <legend>4. Extraction Settings</legend>
+            <legend>5. Extraction Settings</legend>
             <div class="grid-two">
               <label class="field">
                 <span>Chunk chars</span>
@@ -123,7 +184,10 @@
             </label>
           </fieldset>
 
-          <button class="button primary" type="submit">Generate dataset.csv</button>
+          <button class="button primary" type="submit" id="submit-button">Generate dataset.csv</button>
+          <section class="notice running" id="running-notice" hidden>
+            Reading PDFs and running extraction. Local Qwen can take several minutes per file; leave this page open.
+          </section>
         </form>
 
         <aside class="output-panel">
@@ -177,10 +241,16 @@
       const modeInputs = document.querySelectorAll('input[name="model_mode"]');
       const defaultModelInputs = document.querySelectorAll('input[name="default_model"]');
       const providerInputs = document.querySelectorAll('input[name="llm_provider"]');
+      const reportInput = document.querySelector('input[name="reports"]');
       const apiSettings = document.getElementById('api-settings');
       const defaultSettings = document.getElementById('default-settings');
       const defaultModelPath = document.getElementById('default-model-path');
       const modelSelect = document.getElementById('model-select');
+      const form = document.getElementById('extract-form');
+      const submitButton = document.getElementById('submit-button');
+      const runningNotice = document.getElementById('running-notice');
+      const reportSummary = document.getElementById('report-file-summary');
+      const customTextarea = document.querySelector('textarea[name="custom_phenotypes"]');
       function syncMode() {
         const selected = document.querySelector('input[name="model_mode"]:checked');
         apiSettings.hidden = !selected || selected.value !== 'api';
@@ -207,6 +277,32 @@
       modeInputs.forEach((input) => input.addEventListener('change', syncMode));
       defaultModelInputs.forEach((input) => input.addEventListener('change', syncDefaultModel));
       providerInputs.forEach((input) => input.addEventListener('change', syncProvider));
+      document.querySelectorAll('[data-select-group]').forEach((button) => {
+        button.addEventListener('click', () => {
+          document.querySelectorAll(`input[name="${button.dataset.selectGroup}"]:not(:disabled)`).forEach((input) => { input.checked = true; });
+        });
+      });
+      document.querySelectorAll('[data-clear-group]').forEach((button) => {
+        button.addEventListener('click', () => {
+          document.querySelectorAll(`input[name="${button.dataset.clearGroup}"]:not(:disabled)`).forEach((input) => { input.checked = false; });
+        });
+      });
+      document.getElementById('clear-custom-phenotypes').addEventListener('click', () => {
+        customTextarea.value = '';
+      });
+      reportInput.addEventListener('change', () => {
+        const count = reportInput.files ? reportInput.files.length : 0;
+        reportSummary.textContent = count ? `${count} file${count === 1 ? '' : 's'} selected` : 'Select multiple PDF files';
+      });
+      form.addEventListener('submit', () => {
+        const selectedMode = document.querySelector('input[name="model_mode"]:checked');
+        const selectedDefault = document.querySelector('input[name="default_model"]:checked');
+        submitButton.disabled = true;
+        submitButton.textContent = selectedMode && selectedMode.value === 'default' && selectedDefault && selectedDefault.value !== 'builtin'
+          ? 'Running local model...'
+          : 'Generating dataset.csv...';
+        runningNotice.hidden = false;
+      });
       syncMode();
       syncDefaultModel();
       syncProvider();
