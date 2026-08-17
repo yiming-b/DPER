@@ -4,9 +4,10 @@ DPER extracts dog phenotype information from heterogeneous veterinary PDF report
 
 The package supports:
 
+- Local Qwen3 4B GGUF extraction with no API key
+- Built-in regex/dictionary extraction with no model download
 - OpenAI API extraction
 - Claude API extraction
-- Optional local Qwen3 4B GGUF model extraction with no API key
 - A browser UI for uploading PDFs and downloading CSV output
 - A CLI for batch runs
 - A controlled phenotype dictionary in `schemas/phenotype_dictionary.csv`
@@ -33,41 +34,35 @@ Use `phenotype_id` as the stable machine key. The dictionary column `field_or_ph
 
 ## Install
 
+Recommended local setup, no API key:
+
 ```powershell
 git clone https://github.com/yiming-b/DPER.git
 cd DPER
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
+python .\scripts\setup_local_qwen.py
+python .\scripts\run_web.py
+```
+
+Then open:
+
+```text
+http://127.0.0.1:7860
+```
+
+Full CLI command for local Qwen mode:
+
+```powershell
+python .\scripts\llm_extract.py --provider local-qwen --input ".\reports" --output ".\output\dper_qwen"
+```
+
+Minimal install without downloading Qwen:
+
+```powershell
 python -m pip install --upgrade pip
 python -m pip install -e .
 ```
-
-## API Key Setup
-
-The UI accepts an API key for a single run and does not save it. For CLI use, environment variables are more convenient.
-
-OpenAI:
-
-```powershell
-setx OPENAI_API_KEY "your_openai_key"
-```
-
-Claude:
-
-```powershell
-setx ANTHROPIC_API_KEY "your_anthropic_key"
-```
-
-Open a new terminal after `setx`.
-
-Optional model defaults:
-
-```powershell
-setx DPER_OPENAI_MODEL "gpt-5.6-luna"
-setx DPER_CLAUDE_MODEL "claude-sonnet-5"
-```
-
-You can select a supported model from the UI dropdown or pass a model id with `--model`.
 
 ## Run The Web UI
 
@@ -93,18 +88,23 @@ Open:
 http://127.0.0.1:7860
 ```
 
-In the UI:
+In the local UI:
 
-1. Choose the default/local extractor list or API-backed LLM extraction.
-2. If using Local Qwen3 4B, install the local runtime and download the model once as shown below.
-3. If using an API-backed LLM, choose OpenAI or Claude and enter an API key.
-4. Upload one or more PDF reports.
-5. Generate `dataset.csv`.
-6. Preview `dataset.csv` in the page and download it directly.
+1. Use the default/local extractor list. Qwen3 4B is selected automatically when it has been downloaded.
+2. Upload one or more PDF reports.
+3. Generate `dataset.csv`.
+4. Preview `dataset.csv` in the page and download it directly.
+5. Use OpenAI or Claude only if you want an API-backed run.
 
 The UI redacts common phone numbers, emails, and simple street-address patterns before model calls by default.
 
 ## Run From CLI
+
+Recommended local Qwen mode:
+
+```powershell
+python .\scripts\llm_extract.py --provider local-qwen --input ".\reports" --output ".\output\dper_qwen"
+```
 
 Default built-in extractor:
 
@@ -138,6 +138,33 @@ python .\scripts\llm_extract.py --provider openai --input "C:\path\to\new_report
 
 Append mode skips reports already present in `run_manifest.json` by SHA-256 hash.
 
+## API Key Setup
+
+API-backed extraction is optional. The UI accepts an API key for a single run and does not save it. For CLI use, environment variables are more convenient.
+
+OpenAI:
+
+```powershell
+setx OPENAI_API_KEY "your_openai_key"
+```
+
+Claude:
+
+```powershell
+setx ANTHROPIC_API_KEY "your_anthropic_key"
+```
+
+Open a new terminal after `setx`.
+
+Optional model defaults:
+
+```powershell
+setx DPER_OPENAI_MODEL "gpt-5.6-luna"
+setx DPER_CLAUDE_MODEL "claude-sonnet-5"
+```
+
+You can select a supported model from the UI dropdown or pass a model id with `--model`.
+
 ## Local Qwen3 4B Mode
 
 No API key is required for local Qwen mode. No local model is committed to this repository; large model files should stay in `models/` and are ignored by Git.
@@ -150,7 +177,15 @@ The local Python UI lists:
 
 For the recommended public Qwen3 4B GGUF download, users do not need a Hugging Face account or token. A Hugging Face account/token is only needed for gated or private model repositories, such as some Llama-family distributions or privately hosted model files.
 
-To use the recommended Qwen3 4B GGUF model:
+To manually set up the recommended Qwen3 4B GGUF model:
+
+One-command setup:
+
+```powershell
+python .\scripts\setup_local_qwen.py
+```
+
+Or run the steps separately.
 
 1. Install the optional runtime:
 
@@ -176,7 +211,7 @@ This downloads `Qwen/Qwen3-4B-GGUF:Q4_K_M` to:
 .\models\Qwen3-4B-Q4_K_M.gguf
 ```
 
-3. Run from the local web UI and choose `Local Qwen3 4B`, or run from CLI:
+3. Run from the local web UI, where Qwen3 4B is auto-selected when downloaded, or run from CLI:
 
 ```powershell
 python .\scripts\llm_extract.py --provider local-qwen --input ".\reports" --output ".\output\dper_qwen"
@@ -217,5 +252,6 @@ docs/                     Design notes and prompt template
 ```powershell
 $files = @(Get-ChildItem -Recurse .\src, .\scripts -Filter *.py | Select-Object -ExpandProperty FullName)
 python -m py_compile @files
+python .\scripts\setup_local_qwen.py --help
 python .\scripts\llm_extract.py --provider dry-run --input "C:\path\to\one_report.pdf" --output .\tmp\dry_run
 ```

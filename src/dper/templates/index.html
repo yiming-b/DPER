@@ -63,7 +63,7 @@
             <div class="model-list">
               {% for option in default_model_options %}
               <label class="model-row {% if option.available == 'yes' %}ready{% else %}missing{% endif %}">
-                <input type="radio" name="default_model" value="{{ option.id }}" data-model-path="{{ option.value }}" {% if loop.first %}checked{% endif %}>
+                <input type="radio" name="default_model" value="{{ option.id }}" data-model-path="{{ option.value }}" {% if option.selected == 'yes' %}checked{% endif %} {% if option.available != 'yes' %}disabled{% endif %}>
                 <span>
                   <strong>{{ option.label }}</strong>
                   <small>{{ option.detail }}</small>

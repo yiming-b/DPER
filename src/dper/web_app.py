@@ -9,7 +9,7 @@ from flask import Flask, abort, render_template, request, send_file
 
 from .dataset import preview_csv
 from .llm_pipeline import RunConfig, run_extraction
-from .local_models import QWEN3_4B_FILENAME, QWEN3_4B_MODEL_ID, default_qwen_model_path
+from .local_models import QWEN3_4B_MODEL_ID, default_qwen_model_path
 from .providers import ProviderError, make_provider
 
 OPENAI_MODEL_OPTIONS = [
@@ -38,33 +38,29 @@ def local_models() -> list[Path]:
 
 def default_model_options() -> list[dict[str, str]]:
     recommended = default_qwen_model_path(repo_root())
-    options: list[dict[str, str]] = [
-        {
-            "id": "builtin",
-            "label": "Built-in regex/dictionary extractor",
-            "detail": "Always available. Fast, no API key, no model download.",
-            "value": "",
-            "available": "yes",
-        }
-    ]
+    options: list[dict[str, str]] = []
+    selected_assigned = False
     if recommended.exists():
         options.append(
             {
                 "id": "qwen3-4b",
                 "label": "Qwen3 4B Q4_K_M",
-                "detail": f"Downloaded: {recommended}. Public Qwen download does not need a Hugging Face token.",
+                "detail": f"Recommended local semantic model. Downloaded: {recommended}.",
                 "value": str(recommended),
                 "available": "yes",
+                "selected": "yes",
             }
         )
+        selected_assigned = True
     else:
         options.append(
             {
                 "id": "qwen3-4b",
                 "label": "Qwen3 4B Q4_K_M",
-                "detail": f"Not downloaded. Run dper-download-qwen3 to create models\\{QWEN3_4B_FILENAME}. No Hugging Face token is needed for Qwen.",
+                "detail": f"Recommended local semantic model. Not downloaded yet. Run python .\\scripts\\setup_local_qwen.py.",
                 "value": str(recommended),
                 "available": "no",
+                "selected": "no",
             }
         )
     for path in local_models():
@@ -77,8 +73,20 @@ def default_model_options() -> list[dict[str, str]]:
                 "detail": f"Downloaded GGUF model: {path}",
                 "value": str(path),
                 "available": "yes",
+                "selected": "yes" if not selected_assigned else "no",
             }
         )
+        selected_assigned = True
+    options.append(
+        {
+            "id": "builtin",
+            "label": "Built-in regex/dictionary extractor",
+            "detail": "Fallback extractor. Always available, fast, no API key, no model download.",
+            "value": "",
+            "available": "yes",
+            "selected": "yes" if not selected_assigned else "no",
+        }
+    )
     return options
 
 

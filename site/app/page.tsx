@@ -56,16 +56,16 @@ const DEFAULT_MODEL_BY_PROVIDER: Record<Provider, string> = {
 
 const DEFAULT_EXTRACTOR_OPTIONS: DefaultExtractorOption[] = [
   {
-    id: "regex-dictionary",
-    label: "Regex/dictionary extractor",
-    detail: "Runs directly in this browser app. Fast, no API key, no model download.",
-    availability: "Available here",
-  },
-  {
     id: "qwen3-4b-q4km",
     label: "Qwen3 4B Q4_K_M",
-    detail: "Runs through the local DPER Python backend after dper-download-qwen3. No OpenAI, Claude, or Hugging Face key is needed for this public Qwen download.",
-    availability: "Local backend",
+    detail: "Recommended local semantic model. Run python .\\scripts\\setup_local_qwen.py once, then use the local DPER website. No OpenAI, Claude, or Hugging Face key is needed for this public Qwen download.",
+    availability: "Recommended local",
+  },
+  {
+    id: "regex-dictionary",
+    label: "Regex/dictionary extractor",
+    detail: "Fallback extractor that runs directly in this browser app. Fast, no API key, no model download.",
+    availability: "Available here",
   },
   {
     id: "downloaded-gguf",
@@ -416,8 +416,8 @@ export default function Home() {
             <fieldset>
               <legend>2. Default / Local Models</legend>
               <div className="model-list">
-                {DEFAULT_EXTRACTOR_OPTIONS.map((option, index) => (
-                  <div className={`model-row${index === 0 ? " active" : ""}`} key={option.id}>
+                {DEFAULT_EXTRACTOR_OPTIONS.map((option) => (
+                  <div className={`model-row${option.id === "qwen3-4b-q4km" ? " active" : ""}`} key={option.id}>
                     <span>
                       <strong>{option.label}</strong>
                       <small>{option.detail}</small>
