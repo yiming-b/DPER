@@ -71,6 +71,12 @@ You can also pass a model id in the UI or with `--model`.
 
 ## Run The Web UI
 
+Hosted browser app:
+
+The `site/` folder contains a deployable browser version of DPER. It lets users upload multiple PDFs, choose the built-in extractor or provide an OpenAI/Claude API key, preview `dataset.csv`, and download it directly.
+
+Local Python UI:
+
 ```powershell
 python .\scripts\run_web.py
 ```
