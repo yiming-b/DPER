@@ -2,7 +2,24 @@
 
 import { useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
-import { BASE_COLUMNS, DEFAULT_PHENOTYPES, normalizeWhitespace, parsePhenotypeList, slug } from "./phenotypes";
+import {
+  BASE_COLUMNS,
+  DEFAULT_PHENOTYPES,
+  findDateHits,
+  formatDateList,
+  formatDatedStatusValues,
+  formatObservedValues,
+  nearestDateForIndex,
+  normalizeColor,
+  normalizeReproductiveStatus,
+  normalizeSex,
+  normalizeSpecies,
+  normalizeWeight,
+  normalizeWhitespace,
+  parsePhenotypeList,
+  slug,
+  standardizeDate,
+} from "./phenotypes";
 import type { PhenotypeDefinition } from "./phenotypes";
 
 type Provider = "openai" | "claude";
@@ -46,6 +63,56 @@ function extractField(text: string, patterns: RegExp[]) {
   return "";
 }
 
+function toGlobalRegex(pattern: RegExp) {
+  return new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`);
+}
+
+function cleanFieldValue(value: string) {
+  return normalizeWhitespace(value)
+    .split(/\b(?:Owner|Client|Address|Phone|Email|Species|Breed|Age|Sex|Gender|Weight|Color|Colour|DOB|Date of Birth)\b/i)[0]
+    .replace(/[.,;:]$/, "")
+    .trim();
+}
+
+function collectFieldObservations(
+  text: string,
+  patterns: RegExp[],
+  dateHits: ReturnType<typeof findDateHits>,
+  normalizeValue: (value: string) => string = cleanFieldValue,
+) {
+  const observations = [];
+  const seen = new Set<string>();
+  for (const pattern of patterns) {
+    const regex = toGlobalRegex(pattern);
+    for (const match of text.matchAll(regex)) {
+      const rawValue = match[1] || "";
+      const value = normalizeValue(cleanFieldValue(rawValue));
+      if (!value) continue;
+      const date = nearestDateForIndex(dateHits, match.index ?? 0);
+      const key = `${value}|${date}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      observations.push({ value, date });
+    }
+  }
+  return observations;
+}
+
+function collectDateField(text: string, patterns: RegExp[]) {
+  const observations = [];
+  const seen = new Set<string>();
+  for (const pattern of patterns) {
+    const regex = toGlobalRegex(pattern);
+    for (const match of text.matchAll(regex)) {
+      const value = standardizeDate(match[1] || "");
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      observations.push({ value });
+    }
+  }
+  return observations;
+}
+
 function inferStatus(text: string, term: string) {
   const lower = text.toLowerCase();
   const index = lower.indexOf(term.toLowerCase());
@@ -58,36 +125,70 @@ function inferStatus(text: string, term: string) {
   return "present";
 }
 
+function phenotypeEvents(text: string, dateHits: ReturnType<typeof findDateHits>, phenotype: PhenotypeDefinition) {
+  const lower = text.toLowerCase();
+  const events = [];
+  const seen = new Set<string>();
+  for (const term of phenotype.terms) {
+    const target = term.toLowerCase();
+    let index = lower.indexOf(target);
+    while (index >= 0) {
+      const status = inferStatus(text, term);
+      const date = nearestDateForIndex(dateHits, index);
+      const key = `${status}|${date}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        events.push({ value: status, date });
+      }
+      index = lower.indexOf(target, index + target.length);
+    }
+  }
+  return events;
+}
+
 function defaultExtract(reports: ReportText[], phenotypes: PhenotypeDefinition[]) {
   const rows = reports.map((report, index) => {
     const text = report.text;
-    const textLower = text.toLowerCase();
+    const dateHits = findDateHits(text);
     const dogName =
       extractField(text, [
         /\bName\s*:?\s*([A-Za-z][A-Za-z '\-()]{1,50})\s+Species\b/i,
         /\bPatient\s*:?\s*(?:#?\d+,?\s*)?([A-Za-z][A-Za-z '\-()]{1,50})(?:\s|\.|,)/i,
         /Clinical History for\s+([A-Za-z][A-Za-z '\-()]{1,50})\b/i,
       ]) || report.fileName.replace(/\.[^.]+$/, "").split(/[_-]/)[0];
-    const breed = extractField(text, [/\bBreed\s*:?\s*([A-Za-z (),/&.-]{2,80})/i, /\bBreed \(Species\):\s*([^(\n]+)/i]);
-    const sexRaw = extractField(text, [/\b(?:Sex|Gender)\s*:?\s*(Male\s*\/\s*Neutered|Female\s*\/\s*Spayed|Male,\s*Neutered|Female,\s*Spayed|MN|FS|Male|Female)/i]);
-    const sexLower = sexRaw.toLowerCase();
+    const species = collectFieldObservations(text, [/\bSpecies\s*:?\s*([A-Za-z ]{3,30})/i], dateHits, normalizeSpecies);
+    const breed = collectFieldObservations(text, [/\bBreed\s*:?\s*([^.\n\r]{2,90})/i, /\bBreed \(Species\):\s*([^(\n\r]+)/i], dateHits);
+    const sex = collectFieldObservations(text, [/\b(?:Sex|Gender)\s*:?\s*(Male\s*\/\s*Neutered|Female\s*\/\s*Spayed|Male,\s*Neutered|Female,\s*Spayed|Neutered Male|Spayed Female|Intact Male|Intact Female|MN|FS|M\/N|F\/S|Male|Female)/i], dateHits, normalizeSex);
+    const reproductiveStatus = collectFieldObservations(text, [/\b(?:Sex|Gender|Reproductive Status|Status)\s*:?\s*(Male\s*\/\s*Neutered|Female\s*\/\s*Spayed|Male,\s*Neutered|Female,\s*Spayed|Neutered Male|Spayed Female|Intact Male|Intact Female|Spayed|Neutered|Intact|MN|FS|M\/N|F\/S)/i], dateHits, normalizeReproductiveStatus);
+    const color = collectFieldObservations(text, [/\b(?:Color|Colour|Coat Color|Coat Colour)\s*:?\s*([^.\n\r]{2,80})/i], dateHits, normalizeColor);
+    const weight = collectFieldObservations(text, [/\b(?:Weight|Wt)\s*:?\s*([0-9]+(?:\.[0-9]+)?\s*(?:kg|kgs|kilograms?|lb|lbs|pounds?)?)/i], dateHits, normalizeWeight);
+    const age = collectFieldObservations(text, [/\bAge\s*:?\s*([^.\n\r]{1,60})/i], dateHits, (value) => normalizeWhitespace(value).toLowerCase());
+    const dob = collectDateField(text, [/\b(?:DOB|D\.O\.B\.|Birthday|Birthdate|Date of Birth)\s*:?\s*([0-9A-Za-z/\-., ]{6,24})/i]);
+    const patientId = extractField(text, [
+      /\b(?:Patient|Pet|Animal)\s*(?:ID|#)\s*:?\s*([A-Za-z0-9-]{2,40})/i,
+      /\b(?:Patient|Pet|Animal)\s+Number\s*:?\s*([A-Za-z0-9-]{2,40})/i,
+    ]);
     const row: DatasetRow = {
       dog_id: `${index + 1}_${slug(dogName, "dog")}`,
       source_file: report.fileName,
       dog_name: dogName,
-      species: "canine",
-      breed_raw: breed.split(/\b(?:Age|Sex|Weight|Color|DOB|Address)\b/i)[0].trim(),
-      sex: sexLower.includes("female") || sexLower === "fs" ? "female" : sexLower.includes("male") || sexLower === "mn" ? "male" : "",
-      reproductive_status: sexLower.includes("spay") || sexLower === "fs" ? "spayed" : sexLower.includes("neuter") || sexLower === "mn" ? "neutered" : "",
-      date_of_birth: extractField(text, [/\b(?:DOB|D\.O\.B\.|Birthday|Birthdate)\s*:?\s*([0-9A-Za-z/\-.]+)/i]),
-      age_reported: extractField(text, [/\bAge\s*:?\s*([0-9A-Za-z .]+)/i]).split(/\b(?:ID|Color|Weight|Sex)\b/i)[0].trim(),
+      patient_id: patientId,
+      species: formatObservedValues(species) || "canine",
+      breed_raw: formatObservedValues(breed),
+      sex: formatObservedValues(sex),
+      reproductive_status: formatObservedValues(reproductiveStatus),
+      color: formatObservedValues(color),
+      weight: formatObservedValues(weight),
+      date_of_birth: formatObservedValues(dob),
+      age_reported: formatObservedValues(age),
+      visit_dates: formatDateList(dateHits.map((hit) => hit.value)),
       phenotype_event_count: "0",
     };
     let eventCount = 0;
     for (const phenotype of phenotypes) {
-      const matchedTerm = phenotype.terms.find((term) => textLower.includes(term.toLowerCase()));
-      row[phenotype.id] = matchedTerm ? inferStatus(text, matchedTerm) : "";
-      if (matchedTerm) eventCount += 1;
+      const events = phenotypeEvents(text, dateHits, phenotype);
+      row[phenotype.id] = formatDatedStatusValues(events);
+      if (events.length) eventCount += 1;
     }
     row.phenotype_event_count = String(eventCount);
     return row;
@@ -200,7 +301,7 @@ export default function Home() {
       <section className="app-header">
         <div>
           <h1>DPER</h1>
-          <p>Upload dog veterinary PDFs, extract phenotype fields, and download dataset.csv.</p>
+          <p>Upload dog veterinary PDFs, extract identity, demographics, dated phenotype fields, and download dataset.csv.</p>
         </div>
         <span>Browser App</span>
       </section>
@@ -212,7 +313,7 @@ export default function Home() {
             <div className="choice-grid">
               <label className="choice-card" htmlFor="mode-default" aria-label="Default Extractor">
                 <input id="mode-default" type="radio" name="mode" checked={mode === "default"} onChange={() => setMode("default")} />
-                <span><strong>Default Extractor</strong><small>Built-in dictionary extraction, no API key</small></span>
+                <span><strong>Default Extractor</strong><small>Built-in dictionary extraction with dated phenotype cells</small></span>
               </label>
               <label className="choice-card" htmlFor="mode-api" aria-label="Plug In LLM">
                 <input id="mode-api" type="radio" name="mode" checked={mode === "api"} onChange={() => setMode("api")} />
@@ -274,6 +375,9 @@ export default function Home() {
 
           <fieldset>
             <legend>{fileStep}. Dog PDF Files</legend>
+            <p className="helper-text">
+              Each PDF becomes one row. If a PDF contains multiple visits for the same dog, visit dates are kept inside phenotype cells and changed demographic values.
+            </p>
             <label className="file-box">
               <input type="file" accept="application/pdf,.pdf" multiple onChange={(event) => setFiles(event.target.files)} />
               <span>{files?.length ? `${files.length} file${files.length === 1 ? "" : "s"} selected` : "Select multiple PDF reports"}</span>
@@ -293,6 +397,7 @@ export default function Home() {
           <div className="metric"><span>Rows</span><strong>{rows.length}</strong></div>
           <div className="metric"><span>Columns</span><strong>{columns.length}</strong></div>
           <div className="metric"><span>Phenotypes</span><strong>{extractionPhenotypes.length}</strong></div>
+          <div className="metric"><span>Identity fields</span><strong>{BASE_COLUMNS.length - 1}</strong></div>
           <div className="metric"><span>Mode</span><strong>{mode === "default" ? "Default" : provider}</strong></div>
           <button className="secondary-action" disabled={!canDownload} onClick={() => downloadCsv(columns, rows)}>Download dataset.csv</button>
         </aside>

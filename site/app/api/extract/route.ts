@@ -1,4 +1,17 @@
-import { BASE_COLUMNS, DEFAULT_PHENOTYPES, normalizeWhitespace, slug } from "../../phenotypes";
+import {
+  BASE_COLUMNS,
+  DEFAULT_PHENOTYPES,
+  formatDateList,
+  normalizeColor,
+  normalizeReproductiveStatus,
+  normalizeSex,
+  normalizeSpecies,
+  normalizeWeight,
+  normalizeWhitespace,
+  slug,
+  standardizeDate,
+  uniqueDates,
+} from "../../phenotypes";
 import type { PhenotypeDefinition } from "../../phenotypes";
 
 type Provider = "openai" | "claude";
@@ -63,28 +76,39 @@ function buildPrompt(report: ReportPayload, phenotypes: PhenotypeDefinition[]) {
 
   return `Extract dog phenotype information from this veterinary PDF text.
 
+Create exactly one table row for this source file. The file may contain multiple visits for the same dog; keep those visits inside dated values instead of creating multiple rows.
+
 Use only these exact phenotype columns:
 ${phenotypeList}
 
 Return JSON only with this shape:
 {
+  "patient_id": "",
   "dog_name": "",
   "species": "canine",
   "breed_raw": "",
   "sex": "",
   "reproductive_status": "",
+  "color": "",
+  "weight": "",
   "date_of_birth": "",
   "age_reported": "",
+  "visit_dates": ["MM/DD/YYYY"],
   "phenotypes": {
-    "${examplePhenotype}": "present"
+    "${examplePhenotype}": {
+      "present": ["MM/DD/YYYY"]
+    }
   }
 }
 
 Rules:
-- Phenotype values must be one of present, absent, suspected, rule_out, historical, resolved, normal, abnormal, or empty string.
+- Do not extract or return owner, client, address, phone, or email information.
+- Standardize every date as MM/DD/YYYY. If a date cannot be determined, use an empty string.
+- Standardize color as lower-case terms separated by comma, for example "black, white".
+- For stable demographic fields, return a string. If a demographic field has conflicting values across visits, return an object mapping each normalized value to its visit date or date array. Example: {"grey":"11/01/2009","black, white":"06/30/2011"}.
+- Phenotype values must be objects mapping one of present, absent, suspected, rule_out, historical, resolved, normal, abnormal to a visit date or date array. Use an empty string only when the phenotype is not mentioned.
 - The keys inside "phenotypes" must exactly match the requested phenotype column ids.
 - Do not infer normal findings from silence.
-- Do not include owner names, addresses, phone numbers, or emails.
 
 SOURCE FILE: ${report.fileName}
 
@@ -145,6 +169,44 @@ async function callClaude(apiKey: string, model: string, prompt: string) {
   return (data.content || []).filter((block) => block.type === "text").map((block) => block.text || "").join("");
 }
 
+function normalizeDateValue(value: unknown): unknown {
+  if (typeof value === "string") return standardizeDate(value) || normalizeWhitespace(value);
+  if (Array.isArray(value)) {
+    const dates = uniqueDates(value.map((item) => typeof item === "string" ? standardizeDate(item) : "").filter(Boolean));
+    return dates.length > 1 ? dates : dates[0] || "";
+  }
+  return value;
+}
+
+function stringifyCellValue(value: unknown, normalizeKey?: (key: string) => string, normalizeScalar?: (value: string) => string) {
+  if (typeof value === "string") return normalizeScalar ? normalizeScalar(value) : normalizeWhitespace(value);
+  if (typeof value === "number") return String(value);
+  if (Array.isArray(value)) {
+    const dates = value.map((item) => typeof item === "string" ? standardizeDate(item) : "").filter(Boolean);
+    return dates.length ? formatDateList(dates) : JSON.stringify(value);
+  }
+  if (typeof value === "object" && value) {
+    const output: Record<string, unknown> = {};
+    for (const [rawKey, rawValue] of Object.entries(value)) {
+      const key = normalizeKey ? normalizeKey(rawKey) : normalizeWhitespace(rawKey);
+      if (!key) continue;
+      output[key] = normalizeDateValue(rawValue);
+    }
+    return Object.keys(output).length ? JSON.stringify(output) : "";
+  }
+  return "";
+}
+
+function modelField(extracted: Record<string, unknown>, field: string, normalizeScalar?: (value: string) => string, normalizeKey?: (key: string) => string) {
+  return stringifyCellValue(extracted[field], normalizeKey, normalizeScalar);
+}
+
+function modelPhenotypeCell(value: unknown) {
+  if (typeof value === "string") return normalizeWhitespace(value);
+  if (typeof value === "object" && value) return stringifyCellValue(value, (key) => normalizeWhitespace(key).toLowerCase());
+  return "";
+}
+
 function rowFromModel(index: number, report: ReportPayload, extracted: Record<string, unknown>, phenotypes: PhenotypeDefinition[]) {
   const extractedPhenotypes = typeof extracted.phenotypes === "object" && extracted.phenotypes ? extracted.phenotypes as Record<string, unknown> : {};
   const dogName = typeof extracted.dog_name === "string" && extracted.dog_name ? extracted.dog_name : report.fileName.replace(/\.[^.]+$/, "");
@@ -152,17 +214,21 @@ function rowFromModel(index: number, report: ReportPayload, extracted: Record<st
     dog_id: `${index + 1}_${slug(dogName, "dog")}`,
     source_file: report.fileName,
     dog_name: dogName,
-    species: typeof extracted.species === "string" ? extracted.species : "canine",
-    breed_raw: typeof extracted.breed_raw === "string" ? extracted.breed_raw : "",
-    sex: typeof extracted.sex === "string" ? extracted.sex : "",
-    reproductive_status: typeof extracted.reproductive_status === "string" ? extracted.reproductive_status : "",
-    date_of_birth: typeof extracted.date_of_birth === "string" ? extracted.date_of_birth : "",
-    age_reported: typeof extracted.age_reported === "string" ? extracted.age_reported : "",
+    patient_id: modelField(extracted, "patient_id"),
+    species: modelField(extracted, "species", normalizeSpecies) || "canine",
+    breed_raw: modelField(extracted, "breed_raw"),
+    sex: modelField(extracted, "sex", normalizeSex),
+    reproductive_status: modelField(extracted, "reproductive_status", normalizeReproductiveStatus),
+    color: modelField(extracted, "color", normalizeColor, normalizeColor),
+    weight: modelField(extracted, "weight", normalizeWeight, normalizeWeight),
+    date_of_birth: modelField(extracted, "date_of_birth", (value) => standardizeDate(value) || normalizeWhitespace(value)),
+    age_reported: modelField(extracted, "age_reported", (value) => normalizeWhitespace(value).toLowerCase()),
+    visit_dates: modelField(extracted, "visit_dates", (value) => standardizeDate(value) || normalizeWhitespace(value)),
     phenotype_event_count: "0",
   };
   let count = 0;
   for (const phenotype of phenotypes) {
-    const value = typeof extractedPhenotypes[phenotype.id] === "string" ? extractedPhenotypes[phenotype.id] as string : "";
+    const value = modelPhenotypeCell(extractedPhenotypes[phenotype.id]);
     row[phenotype.id] = value;
     if (value) count += 1;
   }

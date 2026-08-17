@@ -77,6 +77,8 @@ https://dper-dog-phenotypes.ybyb1234.chatgpt.site
 
 The `site/` folder contains a deployable browser version of DPER. It lets users upload multiple PDFs, choose the built-in extractor or provide an OpenAI/Claude API key, use the default phenotype list or provide a custom comma-separated / one-per-line phenotype list, preview `dataset.csv`, and download it directly.
 
+The browser dataset includes dog identity and demographic columns such as `dog_name`, `patient_id`, `species`, `breed_raw`, `sex`, `reproductive_status`, `color`, `weight`, `date_of_birth`, `age_reported`, and `visit_dates`. Owner/client contact information is intentionally excluded. When a single PDF contains multiple visits for the same dog, DPER keeps one row for the file and stores visit dates inside phenotype cells or changed demographic fields as JSON objects with `MM/DD/YYYY` dates.
+
 Local Python UI:
 
 ```powershell
