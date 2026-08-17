@@ -100,10 +100,12 @@ class LocalGGUFProvider(LLMProvider):
         self,
         model_path: str | Path,
         model: str | None = None,
-        n_ctx: int = 16384,
-        max_tokens: int = 4096,
+        n_ctx: int | None = None,
+        max_tokens: int | None = None,
         temperature: float = 0.2,
         top_p: float = 0.8,
+        n_threads: int | None = None,
+        n_gpu_layers: int | None = None,
     ):
         super().__init__(model or str(model_path))
         try:
@@ -116,10 +118,24 @@ class LocalGGUFProvider(LLMProvider):
                 f"Local model file not found: {path}\n"
                 "Download the recommended Qwen3 4B model with: dper-download-qwen3"
             )
-        self.max_tokens = max_tokens
+        self.max_tokens = max_tokens or int(os.getenv("DPER_LOCAL_MAX_TOKENS", "2048"))
         self.temperature = temperature
         self.top_p = top_p
-        self.llm = Llama(model_path=str(path), n_ctx=n_ctx, verbose=False)
+        cpu_count = os.cpu_count() or 4
+        resolved_threads = n_threads or int(os.getenv("DPER_LOCAL_THREADS", str(max(1, min(cpu_count, 8)))))
+        resolved_n_ctx = n_ctx or int(os.getenv("DPER_LOCAL_N_CTX", "8192"))
+        resolved_gpu_layers = n_gpu_layers
+        if resolved_gpu_layers is None and os.getenv("DPER_LOCAL_GPU_LAYERS"):
+            resolved_gpu_layers = int(os.getenv("DPER_LOCAL_GPU_LAYERS", "0"))
+        llama_kwargs: dict[str, Any] = {
+            "model_path": str(path),
+            "n_ctx": resolved_n_ctx,
+            "n_threads": resolved_threads,
+            "verbose": False,
+        }
+        if resolved_gpu_layers is not None:
+            llama_kwargs["n_gpu_layers"] = resolved_gpu_layers
+        self.llm = Llama(**llama_kwargs)
 
     def generate(self, system_prompt: str, user_prompt: str) -> str:
         qwen_user_prompt = f"{user_prompt}\n\n/no_think\nReturn exactly one JSON object and no Markdown."

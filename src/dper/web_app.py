@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-import os
 import csv
+import json
+import os
 import re
 import shutil
+import threading
 import uuid
 from pathlib import Path
+from typing import Any
 
 from flask import Flask, abort, render_template, request, send_file
 
@@ -55,9 +58,83 @@ DICTIONARY_FIELDNAMES = [
     "extraction_notes",
 ]
 
+JOBS: dict[str, dict[str, Any]] = {}
+JOB_LOCK = threading.Lock()
+LOCAL_MODEL_PROVIDERS = {"local-qwen", "local"}
+LOCAL_CHUNK_CHARS = 8000
+LOCAL_DICTIONARY_ROWS = 60
+
 
 def repo_root() -> Path:
     return Path.cwd()
+
+
+def set_job(job_id: str, **updates: Any) -> None:
+    with JOB_LOCK:
+        state = JOBS.setdefault(job_id, {})
+        state.update(updates)
+
+
+def get_job(job_id: str) -> dict[str, Any] | None:
+    with JOB_LOCK:
+        state = JOBS.get(job_id)
+        return dict(state) if state else None
+
+
+def parse_bounded_int(raw: str | None, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(raw or default)
+    except ValueError:
+        value = default
+    return max(minimum, min(maximum, value))
+
+
+def extraction_settings(provider_name: str) -> tuple[int, int, str]:
+    chunk_chars = parse_bounded_int(request.form.get("chunk_chars"), 18000, 4000, 60000)
+    dictionary_rows = parse_bounded_int(request.form.get("max_dictionary_rows"), 120, 20, 300)
+    note = ""
+    if provider_name in LOCAL_MODEL_PROVIDERS:
+        if chunk_chars > LOCAL_CHUNK_CHARS or dictionary_rows > LOCAL_DICTIONARY_ROWS:
+            note = (
+                f"Local model mode capped Chunk chars at {LOCAL_CHUNK_CHARS} "
+                f"and Dictionary rows at {LOCAL_DICTIONARY_ROWS} to keep runtime practical."
+            )
+        chunk_chars = min(chunk_chars, LOCAL_CHUNK_CHARS)
+        dictionary_rows = min(dictionary_rows, LOCAL_DICTIONARY_ROWS)
+    return chunk_chars, dictionary_rows, note
+
+
+def write_run_form_state(
+    run_dir: Path,
+    *,
+    selected_identity_columns: list[str],
+    selected_default_phenotype_ids: list[str],
+    custom_phenotype_text: str,
+) -> None:
+    state = {
+        "selected_identity_columns": selected_identity_columns,
+        "selected_default_phenotype_ids": selected_default_phenotype_ids,
+        "custom_phenotype_text": custom_phenotype_text,
+    }
+    (run_dir / "form_state.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+
+def read_run_form_state(run_dir: Path) -> dict[str, Any]:
+    path = run_dir / "form_state.json"
+    if not path.exists():
+        return {
+            "selected_identity_columns": None,
+            "selected_default_phenotype_ids": None,
+            "custom_phenotype_text": "",
+        }
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {
+            "selected_identity_columns": None,
+            "selected_default_phenotype_ids": None,
+            "custom_phenotype_text": "",
+        }
 
 
 def local_models() -> list[Path]:
@@ -222,19 +299,17 @@ def form_state(
 def default_model_options() -> list[dict[str, str]]:
     recommended = default_qwen_model_path(repo_root())
     options: list[dict[str, str]] = []
-    selected_assigned = False
     if recommended.exists():
         options.append(
             {
                 "id": "qwen3-4b",
                 "label": "Qwen3 4B Q4_K_M",
-                "detail": f"Recommended local semantic model. Downloaded: {recommended}.",
+                "detail": f"Opt-in local semantic model. Downloaded: {recommended}. Start with one PDF; local CPU runs can take several minutes per chunk.",
                 "value": str(recommended),
                 "available": "yes",
-                "selected": "yes",
+                "selected": "no",
             }
         )
-        selected_assigned = True
     else:
         options.append(
             {
@@ -256,21 +331,20 @@ def default_model_options() -> list[dict[str, str]]:
             {
                 "id": f"gguf:{path.name}",
                 "label": path.name,
-                "detail": f"Downloaded GGUF model: {path}",
+                "detail": f"Opt-in downloaded GGUF model: {path}. Local CPU runs can be slow; start with one PDF.",
                 "value": str(path),
                 "available": "yes",
-                "selected": "yes" if not selected_assigned else "no",
+                "selected": "no",
             }
         )
-        selected_assigned = True
     options.append(
         {
             "id": "builtin",
             "label": "Built-in regex/dictionary extractor",
-            "detail": "Fallback extractor. Always available, fast, no API key, no model download.",
+            "detail": "Fast default extractor. Always available, no API key, no model download.",
             "value": "",
             "available": "yes",
-            "selected": "yes" if not selected_assigned else "no",
+            "selected": "yes",
         }
     )
     return options
@@ -311,6 +385,175 @@ def create_app() -> Flask:
                 zip_download_url=None,
             )
         )
+
+    def _render_result_page(run_id: str):
+        run_dir = repo_root() / "web_runs" / run_id
+        output_dir = run_dir / "output"
+        summary_path = output_dir / "summary.json"
+        dataset_path = output_dir / "dataset.csv"
+        if not summary_path.exists() or not dataset_path.exists():
+            abort(404)
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        dataset_preview = preview_csv(dataset_path)
+        form_values = read_run_form_state(run_dir)
+        return render_template(
+            "index.html",
+            **template_context(
+                summary=summary,
+                error=None,
+                dataset_preview=dataset_preview,
+                dataset_download_url=f"/download/{run_id}/dataset",
+                zip_download_url=f"/download/{run_id}/all",
+                **form_state(
+                    selected_identity_columns=form_values.get("selected_identity_columns"),
+                    selected_default_phenotype_ids=form_values.get("selected_default_phenotype_ids"),
+                    custom_phenotype_text=form_values.get("custom_phenotype_text", ""),
+                ),
+            )
+        )
+
+    def _run_background_job(prepared: dict[str, Any]) -> None:
+        run_id = prepared["run_id"]
+
+        def update(message: str) -> None:
+            set_job(run_id, status="running", message=message)
+
+        try:
+            if prepared["provider_name"] in LOCAL_MODEL_PROVIDERS:
+                update("Loading the local GGUF model. The first load can take a few minutes.")
+            else:
+                update("Starting extraction.")
+            provider = make_provider(
+                prepared["provider_name"],
+                api_key=prepared["api_key"],
+                model=prepared["model"],
+                local_model=prepared["local_model"],
+            )
+            if prepared["settings_note"]:
+                update(prepared["settings_note"])
+            summary = run_extraction(
+                RunConfig(
+                    input_path=prepared["upload_dir"],
+                    output_dir=prepared["output_dir"],
+                    provider=provider,
+                    dictionary_path=prepared["selected_dictionary"],
+                    append=False,
+                    chunk_chars=prepared["chunk_chars"],
+                    max_dictionary_rows=prepared["max_dictionary_rows"],
+                    redact=prepared["redact"],
+                    dataset_identity_columns=prepared["selected_identity_columns"],
+                    progress_callback=update,
+                )
+            )
+            if prepared["settings_note"]:
+                summary["settings_note"] = prepared["settings_note"]
+                (prepared["output_dir"] / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+            archive_base = prepared["run_dir"] / "dper_results"
+            shutil.make_archive(str(archive_base), "zip", prepared["output_dir"])
+            set_job(
+                run_id,
+                status="succeeded",
+                message=f"dataset.csv is ready. Processed {summary['reports_processed']} report(s).",
+                result_url=f"/results/{run_id}",
+            )
+        except Exception as exc:
+            set_job(
+                run_id,
+                status="failed",
+                message=(
+                    f"{exc.__class__.__name__}: {exc}. "
+                    "If this happened in local Qwen mode, try one PDF first, clear most default phenotypes, "
+                    "or use the built-in extractor/API mode."
+                ),
+            )
+
+    @app.post("/jobs")
+    def start_job():
+        run_id = uuid.uuid4().hex[:12]
+        run_dir = repo_root() / "web_runs" / run_id
+        upload_dir = run_dir / "uploads"
+        output_dir = run_dir / "output"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+
+        files = request.files.getlist("reports")
+        pdf_paths: list[Path] = []
+        for file in files:
+            if not file.filename or not file.filename.lower().endswith(".pdf"):
+                continue
+            safe_name = Path(file.filename).name
+            target = upload_dir / safe_name
+            file.save(target)
+            pdf_paths.append(target)
+
+        if not pdf_paths:
+            return {"error": "Upload at least one PDF report."}, 400
+
+        model_mode = request.form.get("model_mode", "default")
+        default_model = request.form.get("default_model", "builtin")
+        if model_mode == "api":
+            provider_name = request.form.get("llm_provider", "openai")
+        elif default_model == "builtin":
+            provider_name = "default"
+        elif default_model == "qwen3-4b":
+            provider_name = "local-qwen"
+        else:
+            provider_name = "local"
+
+        custom_phenotype_text = custom_phenotype_text_from_request()
+        custom_phenotypes = parse_custom_phenotypes(custom_phenotype_text)
+        custom_ids = {item["id"] for item in custom_phenotypes}
+        selected_identity_columns = selected_identity_columns_from_form()
+        selected_default_phenotype_ids = selected_default_phenotype_ids_from_form(custom_ids)
+        if not selected_identity_columns and not selected_default_phenotype_ids and not custom_phenotypes:
+            return {"error": "Select identity fields, default phenotypes, or enter a custom phenotype list."}, 400
+
+        selected_dictionary = run_dir / "phenotype_dictionary.selected.csv"
+        write_selected_dictionary(
+            target=selected_dictionary,
+            selected_default_ids=selected_default_phenotype_ids,
+            custom_phenotypes=custom_phenotypes,
+        )
+        write_run_form_state(
+            run_dir,
+            selected_identity_columns=selected_identity_columns,
+            selected_default_phenotype_ids=selected_default_phenotype_ids,
+            custom_phenotype_text=custom_phenotype_text,
+        )
+        chunk_chars, max_dictionary_rows, settings_note = extraction_settings(provider_name)
+        prepared = {
+            "run_id": run_id,
+            "run_dir": run_dir,
+            "upload_dir": upload_dir,
+            "output_dir": output_dir,
+            "provider_name": provider_name,
+            "api_key": request.form.get("api_key") or None,
+            "model": request.form.get("model") or None,
+            "local_model": request.form.get("default_model_path") or None,
+            "selected_dictionary": selected_dictionary,
+            "selected_identity_columns": selected_identity_columns,
+            "chunk_chars": chunk_chars,
+            "max_dictionary_rows": max_dictionary_rows,
+            "settings_note": settings_note,
+            "redact": request.form.get("redact", "on") == "on",
+        }
+        set_job(run_id, status="queued", message="Queued extraction job.", result_url=None)
+        threading.Thread(target=_run_background_job, args=(prepared,), daemon=True).start()
+        return {"job_id": run_id, "status_url": f"/jobs/{run_id}"}
+
+    @app.get("/jobs/<run_id>")
+    def job_status(run_id: str):
+        if not run_id.replace("-", "").isalnum():
+            abort(404)
+        state = get_job(run_id)
+        if not state:
+            abort(404)
+        return state
+
+    @app.get("/results/<run_id>")
+    def results(run_id: str):
+        if not run_id.replace("-", "").isalnum():
+            abort(404)
+        return _render_result_page(run_id)
 
     @app.post("/extract")
     def extract():
@@ -364,6 +607,13 @@ def create_app() -> Flask:
             selected_default_ids=selected_default_phenotype_ids,
             custom_phenotypes=custom_phenotypes,
         )
+        write_run_form_state(
+            run_dir,
+            selected_identity_columns=selected_identity_columns,
+            selected_default_phenotype_ids=selected_default_phenotype_ids,
+            custom_phenotype_text=custom_phenotype_text,
+        )
+        chunk_chars, max_dictionary_rows, settings_note = extraction_settings(provider_name)
 
         try:
             provider = make_provider(provider_name, api_key=api_key, model=model, local_model=local_model)
@@ -374,12 +624,14 @@ def create_app() -> Flask:
                     provider=provider,
                     dictionary_path=selected_dictionary,
                     append=False,
-                    chunk_chars=int(request.form.get("chunk_chars") or 18000),
-                    max_dictionary_rows=int(request.form.get("max_dictionary_rows") or 120),
+                    chunk_chars=chunk_chars,
+                    max_dictionary_rows=max_dictionary_rows,
                     redact=request.form.get("redact", "on") == "on",
                     dataset_identity_columns=selected_identity_columns,
                 )
             )
+            if settings_note:
+                summary["settings_note"] = settings_note
         except (ProviderError, ValueError, RuntimeError) as exc:
             return _render_error(
                 str(exc),

@@ -25,7 +25,10 @@
       {% if summary %}
       <section class="notice success">
         <div>
-          <strong>{{ summary.reports_processed }}</strong> report{% if summary.reports_processed != 1 %}s{% endif %} processed with {{ summary.provider }}.
+          <div><strong>{{ summary.reports_processed }}</strong> report{% if summary.reports_processed != 1 %}s{% endif %} processed with {{ summary.provider }}.</div>
+          {% if summary.settings_note %}
+          <small>{{ summary.settings_note }}</small>
+          {% endif %}
         </div>
         <div class="actions">
           {% if dataset_download_url %}
@@ -171,13 +174,16 @@
             <div class="grid-two">
               <label class="field">
                 <span>Chunk chars</span>
-                <input type="number" name="chunk_chars" min="4000" max="60000" step="1000" value="18000">
+                <input id="chunk-chars" type="number" name="chunk_chars" min="4000" max="60000" step="1000" value="18000" data-standard-value="18000" data-local-value="8000">
               </label>
               <label class="field">
                 <span>Dictionary rows</span>
-                <input type="number" name="max_dictionary_rows" min="20" max="300" step="10" value="120">
+                <input id="dictionary-rows" type="number" name="max_dictionary_rows" min="20" max="300" step="10" value="120" data-standard-value="120" data-local-value="60">
               </label>
             </div>
+            <p class="helper-text" id="local-settings-note" hidden>
+              Local Qwen mode is slow on CPU. Start with one PDF; the UI uses smaller local-model settings by default.
+            </p>
             <label class="toggle">
               <input type="checkbox" name="redact" checked>
               <span>Redact contact details before model calls</span>
@@ -185,8 +191,9 @@
           </fieldset>
 
           <button class="button primary" type="submit" id="submit-button">Generate dataset.csv</button>
+          <section class="notice error" id="async-error" hidden></section>
           <section class="notice running" id="running-notice" hidden>
-            Reading PDFs and running extraction. Local Qwen can take several minutes per file; leave this page open.
+            <span id="running-message">Reading PDFs and running extraction. Leave this page open.</span>
           </section>
         </form>
 
@@ -249,16 +256,40 @@
       const form = document.getElementById('extract-form');
       const submitButton = document.getElementById('submit-button');
       const runningNotice = document.getElementById('running-notice');
+      const runningMessage = document.getElementById('running-message');
+      const asyncError = document.getElementById('async-error');
       const reportSummary = document.getElementById('report-file-summary');
       const customTextarea = document.querySelector('textarea[name="custom_phenotypes"]');
+      const chunkInput = document.getElementById('chunk-chars');
+      const dictionaryInput = document.getElementById('dictionary-rows');
+      const localSettingsNote = document.getElementById('local-settings-note');
+      let chunkEdited = false;
+      let dictionaryEdited = false;
+      function isLocalDefaultModel() {
+        const selectedMode = document.querySelector('input[name="model_mode"]:checked');
+        const selectedDefault = document.querySelector('input[name="default_model"]:checked');
+        return selectedMode && selectedMode.value === 'default' && selectedDefault && selectedDefault.value !== 'builtin';
+      }
+      function applyModelSettings() {
+        const isLocal = isLocalDefaultModel();
+        localSettingsNote.hidden = !isLocal;
+        if (!chunkEdited) {
+          chunkInput.value = isLocal ? chunkInput.dataset.localValue : chunkInput.dataset.standardValue;
+        }
+        if (!dictionaryEdited) {
+          dictionaryInput.value = isLocal ? dictionaryInput.dataset.localValue : dictionaryInput.dataset.standardValue;
+        }
+      }
       function syncMode() {
         const selected = document.querySelector('input[name="model_mode"]:checked');
         apiSettings.hidden = !selected || selected.value !== 'api';
         defaultSettings.hidden = !selected || selected.value === 'api';
+        applyModelSettings();
       }
       function syncDefaultModel() {
         const selected = document.querySelector('input[name="default_model"]:checked');
         defaultModelPath.value = selected ? selected.dataset.modelPath || '' : '';
+        applyModelSettings();
       }
       function syncProvider() {
         const selected = document.querySelector('input[name="llm_provider"]:checked');
@@ -277,6 +308,8 @@
       modeInputs.forEach((input) => input.addEventListener('change', syncMode));
       defaultModelInputs.forEach((input) => input.addEventListener('change', syncDefaultModel));
       providerInputs.forEach((input) => input.addEventListener('change', syncProvider));
+      chunkInput.addEventListener('input', () => { chunkEdited = true; });
+      dictionaryInput.addEventListener('input', () => { dictionaryEdited = true; });
       document.querySelectorAll('[data-select-group]').forEach((button) => {
         button.addEventListener('click', () => {
           document.querySelectorAll(`input[name="${button.dataset.selectGroup}"]:not(:disabled)`).forEach((input) => { input.checked = true; });
@@ -294,14 +327,48 @@
         const count = reportInput.files ? reportInput.files.length : 0;
         reportSummary.textContent = count ? `${count} file${count === 1 ? '' : 's'} selected` : 'Select multiple PDF files';
       });
-      form.addEventListener('submit', () => {
-        const selectedMode = document.querySelector('input[name="model_mode"]:checked');
-        const selectedDefault = document.querySelector('input[name="default_model"]:checked');
+      async function pollJob(statusUrl) {
+        while (true) {
+          const response = await fetch(statusUrl, { cache: 'no-store' });
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload.error || 'Could not read extraction status.');
+          runningMessage.textContent = payload.message || 'Running extraction...';
+          if (payload.status === 'succeeded') {
+            window.location.href = payload.result_url;
+            return;
+          }
+          if (payload.status === 'failed') {
+            throw new Error(payload.message || 'Extraction failed.');
+          }
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
+      }
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        asyncError.hidden = true;
         submitButton.disabled = true;
-        submitButton.textContent = selectedMode && selectedMode.value === 'default' && selectedDefault && selectedDefault.value !== 'builtin'
+        submitButton.textContent = isLocalDefaultModel()
           ? 'Running local model...'
           : 'Generating dataset.csv...';
+        runningMessage.textContent = isLocalDefaultModel()
+          ? 'Starting local Qwen extraction. Model loading may take a few minutes.'
+          : 'Starting extraction...';
         runningNotice.hidden = false;
+        try {
+          const response = await fetch('/jobs', {
+            method: 'POST',
+            body: new FormData(form),
+          });
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload.error || 'Could not start extraction.');
+          await pollJob(payload.status_url);
+        } catch (error) {
+          asyncError.textContent = error instanceof Error ? error.message : 'Extraction failed.';
+          asyncError.hidden = false;
+          runningNotice.hidden = true;
+          submitButton.disabled = false;
+          submitButton.textContent = 'Generate dataset.csv';
+        }
       });
       syncMode();
       syncDefaultModel();

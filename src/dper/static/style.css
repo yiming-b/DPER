@@ -16,6 +16,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -484,6 +488,12 @@ textarea {
 .notice.success {
   background: var(--success);
   color: var(--success-ink);
+}
+
+.notice small {
+  display: block;
+  margin-top: 4px;
+  color: inherit;
 }
 
 .notice.error {

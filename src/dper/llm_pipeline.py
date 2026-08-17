@@ -4,7 +4,7 @@ import csv
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .dataset import build_dataset_csv
 from .dictionary import compact_dictionary_rows, load_dictionary, select_dictionary_subset
@@ -26,6 +26,8 @@ from .schema import (
 )
 from .utils import coerce_str, norm_space, parse_json_object, read_json_list, redact_private_text
 
+ProgressCallback = Callable[[str], None]
+
 
 @dataclass
 class RunConfig:
@@ -38,6 +40,7 @@ class RunConfig:
     max_dictionary_rows: int = 120
     redact: bool = True
     dataset_identity_columns: list[str] | None = None
+    progress_callback: ProgressCallback | None = None
 
 
 def write_csv(path: Path, rows: list[dict[str, Any]], columns: list[str], append: bool = False) -> None:
@@ -53,6 +56,11 @@ def write_csv(path: Path, rows: list[dict[str, Any]], columns: list[str], append
 
 def _empty_rows() -> dict[str, list[dict[str, Any]]]:
     return {name: [] for name in TABLE_COLUMNS}
+
+
+def _progress(callback: ProgressCallback | None, message: str) -> None:
+    if callback:
+        callback(message)
 
 
 def _merge_dog(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
@@ -355,6 +363,7 @@ def _process_report(
     max_dictionary_rows: int,
     chunk_chars: int,
     redact: bool,
+    progress_callback: ProgressCallback | None = None,
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
     rows = _empty_rows()
     phenotype_ids = {row.get("phenotype_id", "") for row in dictionary_rows}
@@ -363,7 +372,12 @@ def _process_report(
     dog_id = report.report.report_id.lower()
 
     chunks = chunk_pages(report.pages, chunk_chars)
+    _progress(progress_callback, f"{report.report.path.name}: extracted {report.text_chars:,} text characters into {len(chunks)} chunk(s).")
     for chunk_number, (page_start, page_end, chunk_text) in enumerate(chunks, 1):
+        _progress(
+            progress_callback,
+            f"{report.report.path.name}: running chunk {chunk_number} of {len(chunks)} (pages {page_start}-{page_end}).",
+        )
         source_text = redact_private_text(chunk_text) if redact else chunk_text
         subset = compact_dictionary_rows(select_dictionary_subset(dictionary_rows, source_text, max_dictionary_rows))
         user_prompt = build_user_prompt(
@@ -381,6 +395,7 @@ def _process_report(
             data = parse_json_object(raw)
         except Exception as exc:
             llm_errors.append(f"chunk {chunk_number}: {exc.__class__.__name__}: {exc}")
+            _progress(progress_callback, f"{report.report.path.name}: chunk {chunk_number} failed and was skipped: {exc}")
             continue
 
         if isinstance(data.get("dog"), dict):
@@ -404,6 +419,7 @@ def _process_report(
                 phenotype_ids=phenotype_ids,
             )
         _append_candidates(rows, data, dog_id, report)
+        _progress(progress_callback, f"{report.report.path.name}: finished chunk {chunk_number} of {len(chunks)}.")
 
     dog_name = _dict_value(merged_dog, "dog_name") or report.report.path.stem
     if not rows["visit_summary.csv"]:
@@ -431,7 +447,9 @@ def _process_report(
 
 def run_extraction(config: RunConfig) -> dict[str, Any]:
     config.output_dir.mkdir(parents=True, exist_ok=True)
+    _progress(config.progress_callback, "Loading phenotype dictionary.")
     dictionary_rows = load_dictionary(config.dictionary_path)
+    _progress(config.progress_callback, "Scanning uploaded reports.")
     reports = read_reports(config.input_path)
     total_candidate_reports = len(reports)
 
@@ -442,7 +460,9 @@ def run_extraction(config: RunConfig) -> dict[str, Any]:
 
     all_rows = _empty_rows()
     run_manifest: list[dict[str, Any]] = []
-    for report_input in reports:
+    _progress(config.progress_callback, f"Found {len(reports)} report(s) to process.")
+    for report_number, report_input in enumerate(reports, 1):
+        _progress(config.progress_callback, f"Reading PDF {report_number} of {len(reports)}: {report_input.path.name}.")
         extracted = extract_pdf_text(report_input)
         rows, manifest = _process_report(
             extracted,
@@ -451,14 +471,18 @@ def run_extraction(config: RunConfig) -> dict[str, Any]:
             max_dictionary_rows=config.max_dictionary_rows,
             chunk_chars=config.chunk_chars,
             redact=config.redact,
+            progress_callback=config.progress_callback,
         )
         for table_name, table_rows in rows.items():
             all_rows[table_name].extend(table_rows)
         run_manifest.append(manifest)
+        _progress(config.progress_callback, f"Finished report {report_number} of {len(reports)}: {report_input.path.name}.")
 
+    _progress(config.progress_callback, "Writing CSV tables.")
     for table_name, columns in TABLE_COLUMNS.items():
         write_csv(config.output_dir / table_name, all_rows[table_name], columns, append=config.append)
 
+    _progress(config.progress_callback, "Building dataset.csv.")
     dataset_path = build_dataset_csv(config.output_dir, config.dictionary_path, config.dataset_identity_columns)
     combined_manifest = existing_manifest + run_manifest
     (config.output_dir / "run_manifest.json").write_text(json.dumps(combined_manifest, indent=2), encoding="utf-8")
@@ -473,4 +497,5 @@ def run_extraction(config: RunConfig) -> dict[str, Any]:
         "dataset_csv": str(dataset_path),
     }
     (config.output_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    _progress(config.progress_callback, "Extraction complete.")
     return summary

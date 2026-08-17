@@ -150,7 +150,7 @@ http://127.0.0.1:7860
 
 In the local UI:
 
-1. Use the default/local extractor list. Qwen3 4B is selected automatically when it has been downloaded.
+1. Use the default/local extractor list. The built-in extractor is selected by default because it is fast. Choose Qwen3 4B manually when you want local semantic extraction.
 2. Select the default identity fields and default phenotype columns to include.
 3. Optionally paste or upload a `.txt` phenotype list. Use one phenotype per line or separate entries with commas; custom phenotype columns appear before defaults and duplicate defaults are removed.
 4. Upload one or more PDF reports.
@@ -160,7 +160,7 @@ In the local UI:
 
 The UI redacts common phone numbers, emails, and simple street-address patterns before model calls by default.
 
-Local Qwen runs happen inside the Python backend, not inside the browser. The page shows a running message after submission; a Qwen run can take several minutes per report depending on CPU/RAM and report length.
+Local Qwen runs happen inside the Python backend, not inside the browser. The page submits the run as a background job and updates progress while it reads PDFs, loads the model, and processes chunks. A Qwen run can take several minutes per chunk depending on CPU/RAM and report length. Start with one PDF and only a small phenotype set when testing.
 
 ## Run From CLI
 
@@ -313,6 +313,26 @@ The local Python UI lists:
 - Built-in regex/dictionary extractor, always available.
 - Recommended Qwen3 4B GGUF model, marked as downloaded or missing.
 - Any other `.gguf` files found in `models/`.
+
+The local UI keeps Qwen runs practical by using smaller settings than API mode. If Qwen is selected, the page defaults to `Chunk chars = 8000` and `Dictionary rows = 60`, and the backend caps larger submitted values at those limits. For higher quality on a strong machine, run the CLI directly and increase `--chunk-chars` / `--max-dictionary-rows`.
+
+Optional local runtime environment variables:
+
+```bash
+export DPER_LOCAL_N_CTX=8192
+export DPER_LOCAL_MAX_TOKENS=2048
+export DPER_LOCAL_THREADS=8
+export DPER_LOCAL_GPU_LAYERS=0
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:DPER_LOCAL_N_CTX = "8192"
+$env:DPER_LOCAL_MAX_TOKENS = "2048"
+$env:DPER_LOCAL_THREADS = "8"
+$env:DPER_LOCAL_GPU_LAYERS = "0"
+```
 
 For the recommended public Qwen3 4B GGUF download, users do not need a Hugging Face account or token. A Hugging Face account/token is only needed for gated or private model repositories, such as some Llama-family distributions or privately hosted model files.
 
