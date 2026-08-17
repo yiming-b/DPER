@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "DPER",
+  title: "Dog Phenotype Extractor from Report (DPER)",
   description: "Dog phenotype extraction from veterinary PDF reports.",
   icons: {
     icon: "/favicon.svg",

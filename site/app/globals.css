@@ -52,9 +52,18 @@ textarea {
 
 .app-header h1 {
   margin: 0;
-  font-size: 34px;
+  max-width: 780px;
+  font-size: 32px;
   line-height: 1.05;
   letter-spacing: 0;
+}
+
+.app-header h1 strong {
+  font-weight: 900;
+}
+
+.app-header h1 span {
+  white-space: nowrap;
 }
 
 .app-header p {
@@ -289,6 +298,57 @@ legend {
   font-weight: 700;
 }
 
+.compact-actions {
+  margin: 10px 0 8px;
+}
+
+.option-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.option-check {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f9fbfc;
+  min-height: 36px;
+  padding: 7px 9px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.option-check input {
+  accent-color: var(--accent);
+}
+
+.option-check span {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  overflow-wrap: anywhere;
+}
+
+.option-check small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.duplicate-option {
+  color: var(--muted);
+  background: #f1f5f6;
+}
+
+.duplicate-option input {
+  cursor: not-allowed;
+}
+
 .chip-list {
   display: flex;
   flex-wrap: wrap;
@@ -454,6 +514,7 @@ tr:last-child td {
 
   .choice-grid,
   .checkbox-grid,
+  .option-list,
   .segmented {
     grid-template-columns: 1fr;
   }

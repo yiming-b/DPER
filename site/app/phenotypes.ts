@@ -277,7 +277,7 @@ export function parsePhenotypeList(raw: string): PhenotypeDefinition[] {
   return phenotypes;
 }
 
-export function mergePhenotypes(customPhenotypes: PhenotypeDefinition[], includeDefaultPhenotypes: boolean) {
+export function mergePhenotypes(customPhenotypes: PhenotypeDefinition[], defaultPhenotypes: PhenotypeDefinition[]) {
   const seen = new Set<string>();
   const merged: PhenotypeDefinition[] = [];
 
@@ -287,20 +287,18 @@ export function mergePhenotypes(customPhenotypes: PhenotypeDefinition[], include
     merged.push(phenotype);
   }
 
-  if (includeDefaultPhenotypes) {
-    for (const phenotype of DEFAULT_PHENOTYPES) {
-      if (seen.has(phenotype.id)) continue;
-      seen.add(phenotype.id);
-      merged.push(phenotype);
-    }
+  for (const phenotype of defaultPhenotypes) {
+    if (seen.has(phenotype.id)) continue;
+    seen.add(phenotype.id);
+    merged.push(phenotype);
   }
 
   return merged;
 }
 
-export function buildDatasetColumns(includeIdentityColumns: boolean, phenotypes: PhenotypeDefinition[]) {
+export function buildDatasetColumns(identityColumns: string[], phenotypes: PhenotypeDefinition[]) {
   return [
-    ...(includeIdentityColumns ? IDENTITY_COLUMNS : []),
+    ...identityColumns,
     ...(phenotypes.length ? META_COLUMNS : []),
     ...phenotypes.map((phenotype) => phenotype.id),
   ];

@@ -149,7 +149,7 @@ function phenotypeEvents(text: string, dateHits: ReturnType<typeof findDateHits>
   return events;
 }
 
-function defaultExtract(reports: ReportText[], phenotypes: PhenotypeDefinition[], includeIdentityColumns: boolean) {
+function defaultExtract(reports: ReportText[], phenotypes: PhenotypeDefinition[], selectedIdentityColumns: string[]) {
   const rows = reports.map((report, index) => {
     const text = report.text;
     const dateHits = findDateHits(text);
@@ -196,7 +196,7 @@ function defaultExtract(reports: ReportText[], phenotypes: PhenotypeDefinition[]
     row.phenotype_event_count = String(eventCount);
     return row;
   });
-  return { columns: buildDatasetColumns(includeIdentityColumns, phenotypes), rows };
+  return { columns: buildDatasetColumns(selectedIdentityColumns, phenotypes), rows };
 }
 
 async function extractPdfText(file: File): Promise<ReportText> {
@@ -220,8 +220,8 @@ export default function Home() {
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [phenotypeText, setPhenotypeText] = useState("");
-  const [includeIdentityColumns, setIncludeIdentityColumns] = useState(true);
-  const [includeDefaultPhenotypes, setIncludeDefaultPhenotypes] = useState(true);
+  const [selectedIdentityColumns, setSelectedIdentityColumns] = useState<string[]>(IDENTITY_COLUMNS);
+  const [selectedDefaultPhenotypeIds, setSelectedDefaultPhenotypeIds] = useState<string[]>(DEFAULT_PHENOTYPES.map((phenotype) => phenotype.id));
   const [files, setFiles] = useState<FileList | null>(null);
   const [columns, setColumns] = useState<string[]>([]);
   const [rows, setRows] = useState<DatasetRow[]>([]);
@@ -231,15 +231,17 @@ export default function Home() {
 
   const visibleColumns = useMemo(() => columns.slice(0, 18), [columns]);
   const customPhenotypes = useMemo(() => parsePhenotypeList(phenotypeText), [phenotypeText]);
-  const extractionPhenotypes = useMemo(
-    () => mergePhenotypes(customPhenotypes, includeDefaultPhenotypes),
-    [customPhenotypes, includeDefaultPhenotypes],
-  );
   const customPhenotypeIds = useMemo(() => new Set(customPhenotypes.map((phenotype) => phenotype.id)), [customPhenotypes]);
-  const defaultPhenotypesInOutput = includeDefaultPhenotypes
-    ? DEFAULT_PHENOTYPES.filter((phenotype) => !customPhenotypeIds.has(phenotype.id))
-    : [];
-  const removedDuplicateDefaults = includeDefaultPhenotypes ? DEFAULT_PHENOTYPES.length - defaultPhenotypesInOutput.length : 0;
+  const selectedDefaultPhenotypes = useMemo(
+    () => DEFAULT_PHENOTYPES.filter((phenotype) => selectedDefaultPhenotypeIds.includes(phenotype.id)),
+    [selectedDefaultPhenotypeIds],
+  );
+  const defaultPhenotypesInOutput = selectedDefaultPhenotypes.filter((phenotype) => !customPhenotypeIds.has(phenotype.id));
+  const extractionPhenotypes = useMemo(
+    () => mergePhenotypes(customPhenotypes, selectedDefaultPhenotypes),
+    [customPhenotypes, selectedDefaultPhenotypes],
+  );
+  const removedDuplicateDefaults = selectedDefaultPhenotypes.length - defaultPhenotypesInOutput.length;
   const isCustomPhenotypeList = customPhenotypes.length > 0;
   const canDownload = rows.length > 0 && columns.length > 0;
   const phenotypeStep = mode === "api" ? "3" : "2";
@@ -256,6 +258,24 @@ export default function Home() {
     }
   }
 
+  function toggleIdentityColumn(column: string) {
+    setSelectedIdentityColumns((current) => {
+      const next = new Set(current);
+      if (next.has(column)) next.delete(column);
+      else next.add(column);
+      return IDENTITY_COLUMNS.filter((identityColumn) => next.has(identityColumn));
+    });
+  }
+
+  function toggleDefaultPhenotype(phenotypeId: string) {
+    setSelectedDefaultPhenotypeIds((current) => {
+      const next = new Set(current);
+      if (next.has(phenotypeId)) next.delete(phenotypeId);
+      else next.add(phenotypeId);
+      return DEFAULT_PHENOTYPES.map((phenotype) => phenotype.id).filter((id) => next.has(id));
+    });
+  }
+
   async function runExtraction() {
     setError("");
     setStatus("");
@@ -269,7 +289,7 @@ export default function Home() {
       setError("Enter at least one phenotype, separated by line or comma, or clear the custom list to use the default.");
       return;
     }
-    if (!includeIdentityColumns && !extractionPhenotypes.length) {
+    if (!selectedIdentityColumns.length && !extractionPhenotypes.length) {
       setError("Select identity fields, default phenotypes, or enter a custom phenotype list.");
       return;
     }
@@ -283,7 +303,7 @@ export default function Home() {
       const reportTexts = await Promise.all(Array.from(files).map((file) => extractPdfText(file)));
       if (mode === "default") {
         setStatus("Generating dataset.csv with the built-in extractor...");
-        const dataset = defaultExtract(reportTexts, extractionPhenotypes, includeIdentityColumns);
+        const dataset = defaultExtract(reportTexts, extractionPhenotypes, selectedIdentityColumns);
         setColumns(dataset.columns);
         setRows(dataset.rows);
       } else {
@@ -295,7 +315,7 @@ export default function Home() {
             provider,
             apiKey,
             model: model.trim(),
-            includeIdentityColumns,
+            selectedIdentityColumns,
             phenotypes: extractionPhenotypes.map((phenotype) => ({ id: phenotype.id, label: phenotype.label })),
             reports: reportTexts.map((report) => ({ fileName: report.fileName, text: report.text.slice(0, 60000) })),
           }),
@@ -318,7 +338,9 @@ export default function Home() {
     <main className="page-shell">
       <section className="app-header">
         <div>
-          <h1>DPER</h1>
+          <h1 aria-label="Dog Phenotype Extractor from Report (DPER)">
+            <strong>D</strong>og <strong>P</strong>henotype <strong>E</strong>xtractor from <strong>R</strong>eport <span>(DPER)</span>
+          </h1>
           <p>Upload dog veterinary PDFs, extract identity, demographics, dated phenotype fields, and download dataset.csv.</p>
         </div>
         <span>Browser App</span>
@@ -363,24 +385,48 @@ export default function Home() {
             <p className="helper-text">
               Custom phenotype lists are for disease, procedure, behavior, or finding columns. Identity and demographic fields are controlled separately.
             </p>
-            <div className="checkbox-grid">
-              <label className="check-card" aria-label="Default Identity Fields">
-                <input
-                  type="checkbox"
-                  checked={includeIdentityColumns}
-                  onChange={(event) => setIncludeIdentityColumns(event.target.checked)}
-                />
-                <span><strong>Default Identity Fields</strong><small>Dog identity, species, breed, sex, color, weight, age, visit dates</small></span>
-              </label>
-              <label className="check-card" aria-label="Default Phenotype List">
-                <input
-                  type="checkbox"
-                  checked={includeDefaultPhenotypes}
-                  onChange={(event) => setIncludeDefaultPhenotypes(event.target.checked)}
-                />
-                <span><strong>Default Phenotype List</strong><small>Built-in phenotype columns appended after custom columns</small></span>
-              </label>
-            </div>
+            <details className="default-phenotypes" open>
+              <summary>Default identity fields ({selectedIdentityColumns.length}/{IDENTITY_COLUMNS.length} selected)</summary>
+              <div className="inline-controls compact-actions">
+                <button type="button" className="text-action" onClick={() => setSelectedIdentityColumns(IDENTITY_COLUMNS)}>Select all</button>
+                <button type="button" className="text-action" onClick={() => setSelectedIdentityColumns([])}>Clear</button>
+              </div>
+              <div className="option-list">
+                {IDENTITY_COLUMNS.map((column) => (
+                  <label className="option-check" key={column} aria-label={`Include ${column}`}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIdentityColumns.includes(column)}
+                      onChange={() => toggleIdentityColumn(column)}
+                    />
+                    <span>{column}</span>
+                  </label>
+                ))}
+              </div>
+            </details>
+            <details className="default-phenotypes" open>
+              <summary>Default phenotype list ({defaultPhenotypesInOutput.length}/{DEFAULT_PHENOTYPES.length} active)</summary>
+              <div className="inline-controls compact-actions">
+                <button type="button" className="text-action" onClick={() => setSelectedDefaultPhenotypeIds(DEFAULT_PHENOTYPES.map((phenotype) => phenotype.id))}>Select all</button>
+                <button type="button" className="text-action" onClick={() => setSelectedDefaultPhenotypeIds([])}>Clear</button>
+              </div>
+              <div className="option-list">
+                {DEFAULT_PHENOTYPES.map((phenotype) => {
+                  const isDuplicate = customPhenotypeIds.has(phenotype.id);
+                  return (
+                    <label className={`option-check${isDuplicate ? " duplicate-option" : ""}`} key={phenotype.id} aria-label={`Include ${phenotype.id}`}>
+                      <input
+                        type="checkbox"
+                        checked={selectedDefaultPhenotypeIds.includes(phenotype.id) && !isDuplicate}
+                        disabled={isDuplicate}
+                        onChange={() => toggleDefaultPhenotype(phenotype.id)}
+                      />
+                      <span>{phenotype.id}{isDuplicate && <small>custom</small>}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </details>
             <label className="field">
               <span>Custom phenotype list</span>
               <textarea
@@ -403,18 +449,6 @@ export default function Home() {
               Using {customPhenotypes.length} custom phenotype columns and {defaultPhenotypesInOutput.length} default phenotype columns.
               {removedDuplicateDefaults > 0 ? ` Removed ${removedDuplicateDefaults} duplicate default column${removedDuplicateDefaults === 1 ? "" : "s"}.` : ""}
             </p>
-            <details className="default-phenotypes" open>
-              <summary>Default identity fields ({IDENTITY_COLUMNS.length})</summary>
-              <div className="chip-list">
-                {IDENTITY_COLUMNS.map((column) => <span key={column}>{column}</span>)}
-              </div>
-            </details>
-            <details className="default-phenotypes">
-              <summary>Default phenotype list ({DEFAULT_PHENOTYPES.length})</summary>
-              <div className="chip-list">
-                {DEFAULT_PHENOTYPES.map((phenotype) => <span key={phenotype.id}>{phenotype.id}</span>)}
-              </div>
-            </details>
             <details className="default-phenotypes">
               <summary>Final phenotype columns ({extractionPhenotypes.length})</summary>
               <div className="chip-list">
@@ -450,7 +484,7 @@ export default function Home() {
           <div className="metric"><span>Rows</span><strong>{rows.length}</strong></div>
           <div className="metric"><span>Columns</span><strong>{columns.length}</strong></div>
           <div className="metric"><span>Phenotypes</span><strong>{extractionPhenotypes.length}</strong></div>
-          <div className="metric"><span>Identity fields</span><strong>{includeIdentityColumns ? IDENTITY_COLUMNS.length : 0}</strong></div>
+          <div className="metric"><span>Identity fields</span><strong>{selectedIdentityColumns.length}</strong></div>
           <div className="metric"><span>Mode</span><strong>{mode === "default" ? "Default" : provider}</strong></div>
           <button className="secondary-action" disabled={!canDownload} onClick={() => downloadCsv(columns, rows)}>Download dataset.csv</button>
         </aside>

@@ -2,6 +2,7 @@ import {
   buildDatasetColumns,
   DEFAULT_PHENOTYPES,
   formatDateList,
+  IDENTITY_COLUMNS,
   normalizeColor,
   normalizeReproductiveStatus,
   normalizeSex,
@@ -68,7 +69,14 @@ function phenotypesFromPayload(input: unknown): PhenotypeDefinition[] {
   return phenotypes;
 }
 
-function buildPrompt(report: ReportPayload, phenotypes: PhenotypeDefinition[], includeIdentityColumns: boolean) {
+function identityColumnsFromPayload(input: unknown) {
+  if (!Array.isArray(input)) return IDENTITY_COLUMNS;
+  const allowed = new Set(IDENTITY_COLUMNS);
+  const selected = new Set(input.filter((item): item is string => typeof item === "string" && allowed.has(item)));
+  return IDENTITY_COLUMNS.filter((column) => selected.has(column));
+}
+
+function buildPrompt(report: ReportPayload, phenotypes: PhenotypeDefinition[], selectedIdentityColumns: string[]) {
   const phenotypeList = phenotypes.length
     ? phenotypes
       .map((phenotype) => `- ${phenotype.id}${phenotype.label !== phenotype.id ? `: ${phenotype.label}` : ""}`)
@@ -82,21 +90,14 @@ function buildPrompt(report: ReportPayload, phenotypes: PhenotypeDefinition[], i
     }
   }`
     : `  "phenotypes": {}`;
-  const identityShape = includeIdentityColumns
-    ? `  "patient_id": "",
-  "dog_name": "",
-  "species": "canine",
-  "breed_raw": "",
-  "sex": "",
-  "reproductive_status": "",
-  "color": "",
-  "weight": "",
-  "date_of_birth": "",
-  "age_reported": "",
-  "visit_dates": ["MM/DD/YYYY"],`
+  const modelIdentityColumns = selectedIdentityColumns.filter((column) => column !== "dog_id" && column !== "source_file");
+  const identityShape = modelIdentityColumns.length
+    ? modelIdentityColumns
+      .map((column) => `  "${column}": ${column === "visit_dates" ? "[\"MM/DD/YYYY\"]" : "\"\""},`)
+      .join("\n")
     : "";
-  const identityRule = includeIdentityColumns
-    ? "- Extract dog identity and demographic fields only; do not extract owner/client/contact fields."
+  const identityRule = modelIdentityColumns.length
+    ? `- Extract only these dog identity/demographic fields: ${modelIdentityColumns.join(", ")}. Do not extract owner/client/contact fields.`
     : "- Do not extract dog identity or demographic fields unless needed to understand a requested phenotype.";
 
   return `Extract dog phenotype information from this veterinary PDF text.
@@ -254,7 +255,7 @@ export async function POST(request: Request) {
       provider?: Provider;
       apiKey?: string;
       model?: string;
-      includeIdentityColumns?: boolean;
+      selectedIdentityColumns?: unknown;
       phenotypes?: unknown;
       reports?: ReportPayload[];
     };
@@ -263,17 +264,17 @@ export async function POST(request: Request) {
     if (!reports.length) return Response.json({ error: "At least one report is required." }, { status: 400 });
 
     const provider = payload.provider === "claude" ? "claude" : "openai";
-    const includeIdentityColumns = payload.includeIdentityColumns !== false;
+    const selectedIdentityColumns = identityColumnsFromPayload(payload.selectedIdentityColumns);
     const phenotypes = phenotypesFromPayload(payload.phenotypes);
     const rows = [];
     for (let index = 0; index < reports.length; index += 1) {
-      const prompt = buildPrompt(reports[index], phenotypes, includeIdentityColumns);
+      const prompt = buildPrompt(reports[index], phenotypes, selectedIdentityColumns);
       const raw = provider === "claude"
         ? await callClaude(payload.apiKey, payload.model || "", prompt)
         : await callOpenAI(payload.apiKey, payload.model || "", prompt);
       rows.push(rowFromModel(index, reports[index], parseJsonObject(raw), phenotypes));
     }
-    return Response.json({ columns: buildDatasetColumns(includeIdentityColumns, phenotypes), rows });
+    return Response.json({ columns: buildDatasetColumns(selectedIdentityColumns, phenotypes), rows });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Extraction failed.";
     return Response.json({ error: message }, { status: 500 });
