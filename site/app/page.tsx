@@ -2,13 +2,16 @@
 
 import { useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
+import { FileUp, Upload } from "lucide-react";
 import {
-  BASE_COLUMNS,
+  buildDatasetColumns,
   DEFAULT_PHENOTYPES,
   findDateHits,
   formatDateList,
   formatDatedStatusValues,
   formatObservedValues,
+  IDENTITY_COLUMNS,
+  mergePhenotypes,
   nearestDateForIndex,
   normalizeColor,
   normalizeReproductiveStatus,
@@ -146,7 +149,7 @@ function phenotypeEvents(text: string, dateHits: ReturnType<typeof findDateHits>
   return events;
 }
 
-function defaultExtract(reports: ReportText[], phenotypes: PhenotypeDefinition[]) {
+function defaultExtract(reports: ReportText[], phenotypes: PhenotypeDefinition[], includeIdentityColumns: boolean) {
   const rows = reports.map((report, index) => {
     const text = report.text;
     const dateHits = findDateHits(text);
@@ -193,7 +196,7 @@ function defaultExtract(reports: ReportText[], phenotypes: PhenotypeDefinition[]
     row.phenotype_event_count = String(eventCount);
     return row;
   });
-  return { columns: [...BASE_COLUMNS, ...phenotypes.map((phenotype) => phenotype.id)], rows };
+  return { columns: buildDatasetColumns(includeIdentityColumns, phenotypes), rows };
 }
 
 async function extractPdfText(file: File): Promise<ReportText> {
@@ -217,6 +220,8 @@ export default function Home() {
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [phenotypeText, setPhenotypeText] = useState("");
+  const [includeIdentityColumns, setIncludeIdentityColumns] = useState(true);
+  const [includeDefaultPhenotypes, setIncludeDefaultPhenotypes] = useState(true);
   const [files, setFiles] = useState<FileList | null>(null);
   const [columns, setColumns] = useState<string[]>([]);
   const [rows, setRows] = useState<DatasetRow[]>([]);
@@ -226,7 +231,15 @@ export default function Home() {
 
   const visibleColumns = useMemo(() => columns.slice(0, 18), [columns]);
   const customPhenotypes = useMemo(() => parsePhenotypeList(phenotypeText), [phenotypeText]);
-  const extractionPhenotypes = customPhenotypes.length ? customPhenotypes : DEFAULT_PHENOTYPES;
+  const extractionPhenotypes = useMemo(
+    () => mergePhenotypes(customPhenotypes, includeDefaultPhenotypes),
+    [customPhenotypes, includeDefaultPhenotypes],
+  );
+  const customPhenotypeIds = useMemo(() => new Set(customPhenotypes.map((phenotype) => phenotype.id)), [customPhenotypes]);
+  const defaultPhenotypesInOutput = includeDefaultPhenotypes
+    ? DEFAULT_PHENOTYPES.filter((phenotype) => !customPhenotypeIds.has(phenotype.id))
+    : [];
+  const removedDuplicateDefaults = includeDefaultPhenotypes ? DEFAULT_PHENOTYPES.length - defaultPhenotypesInOutput.length : 0;
   const isCustomPhenotypeList = customPhenotypes.length > 0;
   const canDownload = rows.length > 0 && columns.length > 0;
   const phenotypeStep = mode === "api" ? "3" : "2";
@@ -256,6 +269,10 @@ export default function Home() {
       setError("Enter at least one phenotype, separated by line or comma, or clear the custom list to use the default.");
       return;
     }
+    if (!includeIdentityColumns && !extractionPhenotypes.length) {
+      setError("Select identity fields, default phenotypes, or enter a custom phenotype list.");
+      return;
+    }
     if (mode === "api" && !apiKey.trim()) {
       setError("Enter an API key or choose the default extractor.");
       return;
@@ -266,7 +283,7 @@ export default function Home() {
       const reportTexts = await Promise.all(Array.from(files).map((file) => extractPdfText(file)));
       if (mode === "default") {
         setStatus("Generating dataset.csv with the built-in extractor...");
-        const dataset = defaultExtract(reportTexts, extractionPhenotypes);
+        const dataset = defaultExtract(reportTexts, extractionPhenotypes, includeIdentityColumns);
         setColumns(dataset.columns);
         setRows(dataset.rows);
       } else {
@@ -278,6 +295,7 @@ export default function Home() {
             provider,
             apiKey,
             model: model.trim(),
+            includeIdentityColumns,
             phenotypes: extractionPhenotypes.map((phenotype) => ({ id: phenotype.id, label: phenotype.label })),
             reports: reportTexts.map((report) => ({ fileName: report.fileName, text: report.text.slice(0, 60000) })),
           }),
@@ -341,10 +359,28 @@ export default function Home() {
           )}
 
           <fieldset>
-            <legend>{phenotypeStep}. Phenotype List</legend>
+            <legend>{phenotypeStep}. Output Columns</legend>
             <p className="helper-text">
-              Leave this blank to use the default phenotype list. Add one phenotype per line, separate phenotypes with commas, or import a .txt list.
+              Custom phenotype lists are for disease, procedure, behavior, or finding columns. Identity and demographic fields are controlled separately.
             </p>
+            <div className="checkbox-grid">
+              <label className="check-card" aria-label="Default Identity Fields">
+                <input
+                  type="checkbox"
+                  checked={includeIdentityColumns}
+                  onChange={(event) => setIncludeIdentityColumns(event.target.checked)}
+                />
+                <span><strong>Default Identity Fields</strong><small>Dog identity, species, breed, sex, color, weight, age, visit dates</small></span>
+              </label>
+              <label className="check-card" aria-label="Default Phenotype List">
+                <input
+                  type="checkbox"
+                  checked={includeDefaultPhenotypes}
+                  onChange={(event) => setIncludeDefaultPhenotypes(event.target.checked)}
+                />
+                <span><strong>Default Phenotype List</strong><small>Built-in phenotype columns appended after custom columns</small></span>
+              </label>
+            </div>
             <label className="field">
               <span>Custom phenotype list</span>
               <textarea
@@ -354,21 +390,37 @@ export default function Home() {
               />
             </label>
             <div className="inline-controls">
-              <label className="txt-file">
+              <label className="icon-upload">
+                <FileUp aria-hidden="true" size={17} strokeWidth={2.2} />
                 <span>Import .txt</span>
-                <input type="file" accept=".txt,text/plain" onChange={handlePhenotypeFileChange} />
+                <input className="hidden-file-input" type="file" accept=".txt,text/plain" onChange={handlePhenotypeFileChange} />
               </label>
               {isCustomPhenotypeList && (
                 <button type="button" className="text-action" onClick={() => setPhenotypeText("")}>Use default list</button>
               )}
             </div>
             <p className="helper-text">
-              {isCustomPhenotypeList ? `Using ${customPhenotypes.length} custom phenotype columns.` : `Using ${DEFAULT_PHENOTYPES.length} default phenotype columns.`}
+              Using {customPhenotypes.length} custom phenotype columns and {defaultPhenotypesInOutput.length} default phenotype columns.
+              {removedDuplicateDefaults > 0 ? ` Removed ${removedDuplicateDefaults} duplicate default column${removedDuplicateDefaults === 1 ? "" : "s"}.` : ""}
             </p>
+            <details className="default-phenotypes" open>
+              <summary>Default identity fields ({IDENTITY_COLUMNS.length})</summary>
+              <div className="chip-list">
+                {IDENTITY_COLUMNS.map((column) => <span key={column}>{column}</span>)}
+              </div>
+            </details>
             <details className="default-phenotypes">
               <summary>Default phenotype list ({DEFAULT_PHENOTYPES.length})</summary>
               <div className="chip-list">
                 {DEFAULT_PHENOTYPES.map((phenotype) => <span key={phenotype.id}>{phenotype.id}</span>)}
+              </div>
+            </details>
+            <details className="default-phenotypes">
+              <summary>Final phenotype columns ({extractionPhenotypes.length})</summary>
+              <div className="chip-list">
+                {extractionPhenotypes.length
+                  ? extractionPhenotypes.map((phenotype) => <span key={phenotype.id}>{phenotype.id}</span>)
+                  : <span>none selected</span>}
               </div>
             </details>
           </fieldset>
@@ -379,8 +431,9 @@ export default function Home() {
               Each PDF becomes one row. If a PDF contains multiple visits for the same dog, visit dates are kept inside phenotype cells and changed demographic values.
             </p>
             <label className="file-box">
-              <input type="file" accept="application/pdf,.pdf" multiple onChange={(event) => setFiles(event.target.files)} />
-              <span>{files?.length ? `${files.length} file${files.length === 1 ? "" : "s"} selected` : "Select multiple PDF reports"}</span>
+              <input className="hidden-file-input" type="file" accept="application/pdf,.pdf" multiple onChange={(event) => setFiles(event.target.files)} />
+              <span className="file-button"><Upload aria-hidden="true" size={19} strokeWidth={2.4} />Choose PDF files</span>
+              <span className="file-summary">{files?.length ? `${files.length} file${files.length === 1 ? "" : "s"} selected` : "No PDFs selected"}</span>
             </label>
           </fieldset>
 
@@ -397,7 +450,7 @@ export default function Home() {
           <div className="metric"><span>Rows</span><strong>{rows.length}</strong></div>
           <div className="metric"><span>Columns</span><strong>{columns.length}</strong></div>
           <div className="metric"><span>Phenotypes</span><strong>{extractionPhenotypes.length}</strong></div>
-          <div className="metric"><span>Identity fields</span><strong>{BASE_COLUMNS.length - 1}</strong></div>
+          <div className="metric"><span>Identity fields</span><strong>{includeIdentityColumns ? IDENTITY_COLUMNS.length : 0}</strong></div>
           <div className="metric"><span>Mode</span><strong>{mode === "default" ? "Default" : provider}</strong></div>
           <button className="secondary-action" disabled={!canDownload} onClick={() => downloadCsv(columns, rows)}>Download dataset.csv</button>
         </aside>

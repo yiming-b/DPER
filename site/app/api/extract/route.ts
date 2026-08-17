@@ -1,5 +1,5 @@
 import {
-  BASE_COLUMNS,
+  buildDatasetColumns,
   DEFAULT_PHENOTYPES,
   formatDateList,
   normalizeColor,
@@ -65,14 +65,39 @@ function phenotypesFromPayload(input: unknown): PhenotypeDefinition[] {
       terms: [label],
     });
   }
-  return phenotypes.length ? phenotypes : DEFAULT_PHENOTYPES;
+  return phenotypes;
 }
 
-function buildPrompt(report: ReportPayload, phenotypes: PhenotypeDefinition[]) {
-  const phenotypeList = phenotypes
-    .map((phenotype) => `- ${phenotype.id}${phenotype.label !== phenotype.id ? `: ${phenotype.label}` : ""}`)
-    .join("\n");
+function buildPrompt(report: ReportPayload, phenotypes: PhenotypeDefinition[], includeIdentityColumns: boolean) {
+  const phenotypeList = phenotypes.length
+    ? phenotypes
+      .map((phenotype) => `- ${phenotype.id}${phenotype.label !== phenotype.id ? `: ${phenotype.label}` : ""}`)
+      .join("\n")
+    : "No phenotype columns requested.";
   const examplePhenotype = phenotypes[0]?.id || "phenotype_column";
+  const phenotypeShape = phenotypes.length
+    ? `  "phenotypes": {
+    "${examplePhenotype}": {
+      "present": ["MM/DD/YYYY"]
+    }
+  }`
+    : `  "phenotypes": {}`;
+  const identityShape = includeIdentityColumns
+    ? `  "patient_id": "",
+  "dog_name": "",
+  "species": "canine",
+  "breed_raw": "",
+  "sex": "",
+  "reproductive_status": "",
+  "color": "",
+  "weight": "",
+  "date_of_birth": "",
+  "age_reported": "",
+  "visit_dates": ["MM/DD/YYYY"],`
+    : "";
+  const identityRule = includeIdentityColumns
+    ? "- Extract dog identity and demographic fields only; do not extract owner/client/contact fields."
+    : "- Do not extract dog identity or demographic fields unless needed to understand a requested phenotype.";
 
   return `Extract dog phenotype information from this veterinary PDF text.
 
@@ -83,26 +108,13 @@ ${phenotypeList}
 
 Return JSON only with this shape:
 {
-  "patient_id": "",
-  "dog_name": "",
-  "species": "canine",
-  "breed_raw": "",
-  "sex": "",
-  "reproductive_status": "",
-  "color": "",
-  "weight": "",
-  "date_of_birth": "",
-  "age_reported": "",
-  "visit_dates": ["MM/DD/YYYY"],
-  "phenotypes": {
-    "${examplePhenotype}": {
-      "present": ["MM/DD/YYYY"]
-    }
-  }
+${identityShape}
+${phenotypeShape}
 }
 
 Rules:
 - Do not extract or return owner, client, address, phone, or email information.
+${identityRule}
 - Standardize every date as MM/DD/YYYY. If a date cannot be determined, use an empty string.
 - Standardize color as lower-case terms separated by comma, for example "black, white".
 - For stable demographic fields, return a string. If a demographic field has conflicting values across visits, return an object mapping each normalized value to its visit date or date array. Example: {"grey":"11/01/2009","black, white":"06/30/2011"}.
@@ -242,6 +254,7 @@ export async function POST(request: Request) {
       provider?: Provider;
       apiKey?: string;
       model?: string;
+      includeIdentityColumns?: boolean;
       phenotypes?: unknown;
       reports?: ReportPayload[];
     };
@@ -250,16 +263,17 @@ export async function POST(request: Request) {
     if (!reports.length) return Response.json({ error: "At least one report is required." }, { status: 400 });
 
     const provider = payload.provider === "claude" ? "claude" : "openai";
+    const includeIdentityColumns = payload.includeIdentityColumns !== false;
     const phenotypes = phenotypesFromPayload(payload.phenotypes);
     const rows = [];
     for (let index = 0; index < reports.length; index += 1) {
-      const prompt = buildPrompt(reports[index], phenotypes);
+      const prompt = buildPrompt(reports[index], phenotypes, includeIdentityColumns);
       const raw = provider === "claude"
         ? await callClaude(payload.apiKey, payload.model || "", prompt)
         : await callOpenAI(payload.apiKey, payload.model || "", prompt);
       rows.push(rowFromModel(index, reports[index], parseJsonObject(raw), phenotypes));
     }
-    return Response.json({ columns: [...BASE_COLUMNS, ...phenotypes.map((phenotype) => phenotype.id)], rows });
+    return Response.json({ columns: buildDatasetColumns(includeIdentityColumns, phenotypes), rows });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Extraction failed.";
     return Response.json({ error: message }, { status: 500 });

@@ -43,7 +43,7 @@ export const DEFAULT_PHENOTYPES: PhenotypeDefinition[] = [
   { id: "roundworm_infection", label: "roundworm infection", terms: ["roundworm"] },
 ];
 
-export const BASE_COLUMNS = [
+export const IDENTITY_COLUMNS = [
   "dog_id",
   "source_file",
   "dog_name",
@@ -57,7 +57,15 @@ export const BASE_COLUMNS = [
   "date_of_birth",
   "age_reported",
   "visit_dates",
+];
+
+export const META_COLUMNS = [
   "phenotype_event_count",
+];
+
+export const BASE_COLUMNS = [
+  ...IDENTITY_COLUMNS,
+  ...META_COLUMNS,
 ];
 
 const MONTHS: Record<string, string> = {
@@ -267,4 +275,33 @@ export function parsePhenotypeList(raw: string): PhenotypeDefinition[] {
     });
   }
   return phenotypes;
+}
+
+export function mergePhenotypes(customPhenotypes: PhenotypeDefinition[], includeDefaultPhenotypes: boolean) {
+  const seen = new Set<string>();
+  const merged: PhenotypeDefinition[] = [];
+
+  for (const phenotype of customPhenotypes) {
+    if (seen.has(phenotype.id)) continue;
+    seen.add(phenotype.id);
+    merged.push(phenotype);
+  }
+
+  if (includeDefaultPhenotypes) {
+    for (const phenotype of DEFAULT_PHENOTYPES) {
+      if (seen.has(phenotype.id)) continue;
+      seen.add(phenotype.id);
+      merged.push(phenotype);
+    }
+  }
+
+  return merged;
+}
+
+export function buildDatasetColumns(includeIdentityColumns: boolean, phenotypes: PhenotypeDefinition[]) {
+  return [
+    ...(includeIdentityColumns ? IDENTITY_COLUMNS : []),
+    ...(phenotypes.length ? META_COLUMNS : []),
+    ...phenotypes.map((phenotype) => phenotype.id),
+  ];
 }

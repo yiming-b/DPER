@@ -110,8 +110,41 @@ legend {
   gap: 12px;
 }
 
+.checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
 .choice-card {
   display: block;
+}
+
+.check-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  cursor: pointer;
+}
+
+.check-card input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+
+.check-card span {
+  display: grid;
+  gap: 4px;
+}
+
+.check-card small {
+  color: var(--muted);
+  line-height: 1.35;
 }
 
 .choice-card input,
@@ -204,18 +237,6 @@ legend {
   margin-bottom: 12px;
 }
 
-.txt-file {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  color: var(--muted);
-}
-
-.txt-file input {
-  max-width: 260px;
-}
-
 .text-action {
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -224,6 +245,37 @@ legend {
   min-height: 34px;
   padding: 0 11px;
   cursor: pointer;
+}
+
+.icon-upload,
+.file-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--accent-dark);
+  min-height: 38px;
+  padding: 0 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.icon-upload:hover,
+.file-box:hover .file-button {
+  background: #edf8fa;
+}
+
+.hidden-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .default-phenotypes {
@@ -257,6 +309,7 @@ legend {
 .file-box {
   display: grid;
   place-items: center;
+  gap: 10px;
   min-height: 116px;
   border: 1px dashed #aeb9c0;
   border-radius: 8px;
@@ -264,12 +317,7 @@ legend {
   cursor: pointer;
 }
 
-.file-box input {
-  width: min(100%, 320px);
-}
-
-.file-box span {
-  margin-top: 9px;
+.file-summary {
   color: var(--muted);
 }
 
@@ -405,6 +453,7 @@ tr:last-child td {
   }
 
   .choice-grid,
+  .checkbox-grid,
   .segmented {
     grid-template-columns: 1fr;
   }
