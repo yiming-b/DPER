@@ -55,7 +55,6 @@ export const IDENTITY_COLUMNS = [
   "color",
   "weight",
   "date_of_birth",
-  "age_reported",
   "visit_dates",
 ];
 
@@ -240,7 +239,7 @@ export function formatDatedStatusValues(events: DatedValue[]) {
   const grouped = new Map<string, Set<string>>();
   for (const event of events) {
     const value = normalizeWhitespace(event.value);
-    if (!value) continue;
+    if (!value || value === "absent" || value === "normal") continue;
     if (!grouped.has(value)) grouped.set(value, new Set());
     if (event.date) grouped.get(value)?.add(event.date);
   }

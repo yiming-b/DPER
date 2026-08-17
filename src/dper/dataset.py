@@ -33,7 +33,6 @@ BASE_COLUMNS = [
     "sex",
     "reproductive_status",
     "date_of_birth",
-    "age_reported",
     "coat_color",
     "phenotype_event_count",
     "new_candidate_phenotype_count",
@@ -91,8 +90,10 @@ def build_dataset_csv(output_dir: Path, dictionary_path: Path | None = None) -> 
         phenotype_id = event.get("phenotype_id", "")
         if dog_id not in by_dog or not phenotype_id:
             continue
-        counts[dog_id] = counts.get(dog_id, 0) + 1
         status = event.get("status", "")
+        if status in {"absent", "normal"}:
+            continue
+        counts[dog_id] = counts.get(dog_id, 0) + 1
         by_dog[dog_id][phenotype_id] = _best_status(by_dog[dog_id].get(phenotype_id, ""), status)
 
     candidate_counts: dict[str, int] = {}

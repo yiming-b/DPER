@@ -64,10 +64,10 @@ Optional model defaults:
 
 ```powershell
 setx DPER_OPENAI_MODEL "gpt-5.6-luna"
-setx DPER_CLAUDE_MODEL "claude-sonnet-4-5"
+setx DPER_CLAUDE_MODEL "claude-sonnet-5"
 ```
 
-You can also pass a model id in the UI or with `--model`.
+You can select a supported model from the UI dropdown or pass a model id with `--model`.
 
 ## Run The Web UI
 
@@ -77,7 +77,7 @@ https://dper-dog-phenotypes.ybyb1234.chatgpt.site
 
 The `site/` folder contains a deployable browser version of DPER. It lets users upload multiple PDFs, choose the built-in extractor or provide an OpenAI/Claude API key, select individual default identity fields, select individual default phenotype columns, provide a custom comma-separated / one-per-line phenotype list, preview `dataset.csv`, and download it directly. Custom phenotype columns are placed before default phenotype columns; duplicate default phenotypes are removed automatically.
 
-The browser dataset includes dog identity and demographic columns such as `dog_name`, `patient_id`, `species`, `breed_raw`, `sex`, `reproductive_status`, `color`, `weight`, `date_of_birth`, `age_reported`, and `visit_dates`. Owner/client contact information is intentionally excluded. When a single PDF contains multiple visits for the same dog, DPER keeps one row for the file and stores visit dates inside phenotype cells or changed demographic fields as JSON objects with `MM/DD/YYYY` dates.
+The browser dataset includes dog identity and demographic columns such as `dog_name`, `patient_id`, `species`, `breed_raw`, `sex`, `reproductive_status`, `color`, `weight`, `date_of_birth`, and `visit_dates`. Owner/client contact information is intentionally excluded. When a single PDF contains multiple visits for the same dog, DPER keeps one row for the file and stores visit dates inside phenotype cells or changed demographic fields as JSON objects with `MM/DD/YYYY` dates.
 
 Local Python UI:
 

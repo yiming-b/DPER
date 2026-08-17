@@ -69,8 +69,15 @@
               <input type="password" name="api_key" autocomplete="off" placeholder="Not stored">
             </label>
             <label class="field">
-              <span>Model id</span>
-              <input type="text" name="model" placeholder="OpenAI: {{ default_openai_model }}; Claude: {{ default_claude_model }}">
+              <span>Model</span>
+              <select id="model-select" name="model">
+                {% for option in openai_model_options %}
+                <option value="{{ option.id }}" data-provider="openai">{{ option.label }}</option>
+                {% endfor %}
+                {% for option in claude_model_options %}
+                <option value="{{ option.id }}" data-provider="claude">{{ option.label }}</option>
+                {% endfor %}
+              </select>
             </label>
           </fieldset>
 
@@ -152,13 +159,31 @@
 
     <script>
       const modeInputs = document.querySelectorAll('input[name="model_mode"]');
+      const providerInputs = document.querySelectorAll('input[name="llm_provider"]');
       const apiSettings = document.getElementById('api-settings');
+      const modelSelect = document.getElementById('model-select');
       function syncMode() {
         const selected = document.querySelector('input[name="model_mode"]:checked');
         apiSettings.hidden = !selected || selected.value !== 'api';
       }
+      function syncProvider() {
+        const selected = document.querySelector('input[name="llm_provider"]:checked');
+        const provider = selected ? selected.value : 'openai';
+        let firstVisible = null;
+        Array.from(modelSelect.options).forEach((option) => {
+          const isVisible = option.dataset.provider === provider;
+          option.hidden = !isVisible;
+          option.disabled = !isVisible;
+          if (isVisible && !firstVisible) firstVisible = option;
+        });
+        if (modelSelect.selectedOptions[0]?.disabled && firstVisible) {
+          modelSelect.value = firstVisible.value;
+        }
+      }
       modeInputs.forEach((input) => input.addEventListener('change', syncMode));
+      providerInputs.forEach((input) => input.addEventListener('change', syncProvider));
       syncMode();
+      syncProvider();
     </script>
   </body>
 </html>

@@ -119,7 +119,8 @@ ${identityRule}
 - Standardize every date as MM/DD/YYYY. If a date cannot be determined, use an empty string.
 - Standardize color as lower-case terms separated by comma, for example "black, white".
 - For stable demographic fields, return a string. If a demographic field has conflicting values across visits, return an object mapping each normalized value to its visit date or date array. Example: {"grey":"11/01/2009","black, white":"06/30/2011"}.
-- Phenotype values must be objects mapping one of present, absent, suspected, rule_out, historical, resolved, normal, abnormal to a visit date or date array. Use an empty string only when the phenotype is not mentioned.
+- Phenotype values must be objects mapping one of present, suspected, rule_out, historical, resolved, abnormal to a visit date or date array. Use an empty string when the phenotype is not mentioned.
+- Do not return explicitly negated or normal phenotype findings. For example, "no vomiting", "no diarrhea", and "heart WNL/no murmur" should leave those phenotype cells empty.
 - The keys inside "phenotypes" must exactly match the requested phenotype column ids.
 - Do not infer normal findings from silence.
 
@@ -171,7 +172,7 @@ async function callClaude(apiKey: string, model: string, prompt: string) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: model || "claude-sonnet-4-5",
+      model: model || "claude-sonnet-5",
       max_tokens: 4096,
       system: "You extract canine phenotype datasets. Return JSON only.",
       messages: [{ role: "user", content: prompt }],
@@ -216,7 +217,15 @@ function modelField(extracted: Record<string, unknown>, field: string, normalize
 
 function modelPhenotypeCell(value: unknown) {
   if (typeof value === "string") return normalizeWhitespace(value);
-  if (typeof value === "object" && value) return stringifyCellValue(value, (key) => normalizeWhitespace(key).toLowerCase());
+  if (typeof value === "object" && value) {
+    const filtered: Record<string, unknown> = {};
+    for (const [rawKey, rawValue] of Object.entries(value)) {
+      const key = normalizeWhitespace(rawKey).toLowerCase();
+      if (!key || key === "absent" || key === "normal") continue;
+      filtered[key] = rawValue;
+    }
+    return stringifyCellValue(filtered);
+  }
   return "";
 }
 

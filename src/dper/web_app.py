@@ -11,6 +11,18 @@ from .dataset import preview_csv
 from .llm_pipeline import RunConfig, run_extraction
 from .providers import ProviderError, make_provider
 
+OPENAI_MODEL_OPTIONS = [
+    {"id": "gpt-5.6-luna", "label": "GPT-5.6 Luna - lower cost"},
+    {"id": "gpt-5.6-terra", "label": "GPT-5.6 Terra - balanced"},
+    {"id": "gpt-5.6-sol", "label": "GPT-5.6 Sol - highest quality"},
+]
+
+CLAUDE_MODEL_OPTIONS = [
+    {"id": "claude-haiku-4-5-20251001", "label": "Claude Haiku 4.5 - fast"},
+    {"id": "claude-sonnet-5", "label": "Claude Sonnet 5 - balanced"},
+    {"id": "claude-opus-5", "label": "Claude Opus 5 - highest quality"},
+]
+
 
 def repo_root() -> Path:
     return Path.cwd()
@@ -41,8 +53,8 @@ def create_app() -> Flask:
             dataset_download_url=None,
             zip_download_url=None,
             local_models=local_models(),
-            default_openai_model=os.getenv("DPER_OPENAI_MODEL", "gpt-5.6-luna"),
-            default_claude_model=os.getenv("DPER_CLAUDE_MODEL", "claude-sonnet-4-5"),
+            openai_model_options=OPENAI_MODEL_OPTIONS,
+            claude_model_options=CLAUDE_MODEL_OPTIONS,
         )
 
     @app.post("/extract")
@@ -100,8 +112,8 @@ def create_app() -> Flask:
             dataset_download_url=f"/download/{run_id}/dataset",
             zip_download_url=f"/download/{run_id}/all",
             local_models=local_models(),
-            default_openai_model=os.getenv("DPER_OPENAI_MODEL", "gpt-5.6-luna"),
-            default_claude_model=os.getenv("DPER_CLAUDE_MODEL", "claude-sonnet-4-5"),
+            openai_model_options=OPENAI_MODEL_OPTIONS,
+            claude_model_options=CLAUDE_MODEL_OPTIONS,
             zip_size=zip_path.stat().st_size,
         )
 
@@ -115,8 +127,8 @@ def create_app() -> Flask:
                 dataset_download_url=None,
                 zip_download_url=None,
                 local_models=local_models(),
-                default_openai_model=os.getenv("DPER_OPENAI_MODEL", "gpt-5.6-luna"),
-                default_claude_model=os.getenv("DPER_CLAUDE_MODEL", "claude-sonnet-4-5"),
+                openai_model_options=OPENAI_MODEL_OPTIONS,
+                claude_model_options=CLAUDE_MODEL_OPTIONS,
             ),
             400,
         )

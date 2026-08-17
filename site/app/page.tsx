@@ -30,8 +30,23 @@ type Mode = "default" | "api";
 type ReportText = { fileName: string; text: string; pageCount: number };
 type DatasetRow = Record<string, string>;
 
-const DEFAULT_OPENAI_MODEL = "gpt-5.6-luna";
-const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-5";
+const MODEL_OPTIONS: Record<Provider, { id: string; label: string }[]> = {
+  openai: [
+    { id: "gpt-5.6-luna", label: "GPT-5.6 Luna - lower cost" },
+    { id: "gpt-5.6-terra", label: "GPT-5.6 Terra - balanced" },
+    { id: "gpt-5.6-sol", label: "GPT-5.6 Sol - highest quality" },
+  ],
+  claude: [
+    { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5 - fast" },
+    { id: "claude-sonnet-5", label: "Claude Sonnet 5 - balanced" },
+    { id: "claude-opus-5", label: "Claude Opus 5 - highest quality" },
+  ],
+};
+
+const DEFAULT_MODEL_BY_PROVIDER: Record<Provider, string> = {
+  openai: "gpt-5.6-luna",
+  claude: "claude-sonnet-5",
+};
 
 function csvEscape(value: string) {
   const text = value ?? "";
@@ -190,8 +205,9 @@ function defaultExtract(reports: ReportText[], phenotypes: PhenotypeDefinition[]
     let eventCount = 0;
     for (const phenotype of phenotypes) {
       const events = phenotypeEvents(text, dateHits, phenotype);
-      row[phenotype.id] = formatDatedStatusValues(events);
-      if (events.length) eventCount += 1;
+      const phenotypeCell = formatDatedStatusValues(events);
+      row[phenotype.id] = phenotypeCell;
+      if (phenotypeCell) eventCount += 1;
     }
     row.phenotype_event_count = String(eventCount);
     return row;
@@ -218,7 +234,7 @@ export default function Home() {
   const [mode, setMode] = useState<Mode>("default");
   const [provider, setProvider] = useState<Provider>("openai");
   const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState("");
+  const [model, setModel] = useState(DEFAULT_MODEL_BY_PROVIDER.openai);
   const [phenotypeText, setPhenotypeText] = useState("");
   const [selectedIdentityColumns, setSelectedIdentityColumns] = useState<string[]>(IDENTITY_COLUMNS);
   const [selectedDefaultPhenotypeIds, setSelectedDefaultPhenotypeIds] = useState<string[]>(DEFAULT_PHENOTYPES.map((phenotype) => phenotype.id));
@@ -246,6 +262,13 @@ export default function Home() {
   const canDownload = rows.length > 0 && columns.length > 0;
   const phenotypeStep = mode === "api" ? "3" : "2";
   const fileStep = mode === "api" ? "4" : "3";
+  const modelOptions = MODEL_OPTIONS[provider];
+  const selectedModel = modelOptions.some((option) => option.id === model) ? model : DEFAULT_MODEL_BY_PROVIDER[provider];
+
+  function handleProviderChange(nextProvider: Provider) {
+    setProvider(nextProvider);
+    setModel(DEFAULT_MODEL_BY_PROVIDER[nextProvider]);
+  }
 
   async function handlePhenotypeFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -314,7 +337,7 @@ export default function Home() {
           body: JSON.stringify({
             provider,
             apiKey,
-            model: model.trim(),
+            model: selectedModel,
             selectedIdentityColumns,
             phenotypes: extractionPhenotypes.map((phenotype) => ({ id: phenotype.id, label: phenotype.label })),
             reports: reportTexts.map((report) => ({ fileName: report.fileName, text: report.text.slice(0, 60000) })),
@@ -366,16 +389,20 @@ export default function Home() {
             <fieldset>
               <legend>2. API Key</legend>
               <div className="segmented">
-                <label><input type="radio" name="provider" checked={provider === "openai"} onChange={() => setProvider("openai")} /><span>OpenAI</span></label>
-                <label><input type="radio" name="provider" checked={provider === "claude"} onChange={() => setProvider("claude")} /><span>Claude</span></label>
+                <label><input type="radio" name="provider" checked={provider === "openai"} onChange={() => handleProviderChange("openai")} /><span>OpenAI</span></label>
+                <label><input type="radio" name="provider" checked={provider === "claude"} onChange={() => handleProviderChange("claude")} /><span>Claude</span></label>
               </div>
               <label className="field">
                 <span>API key</span>
                 <input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="Used for this run only" />
               </label>
               <label className="field">
-                <span>Model id</span>
-                <input type="text" value={model} onChange={(event) => setModel(event.target.value)} placeholder={provider === "openai" ? DEFAULT_OPENAI_MODEL : DEFAULT_CLAUDE_MODEL} />
+                <span>Model</span>
+                <select value={selectedModel} onChange={(event) => setModel(event.target.value)}>
+                  {modelOptions.map((option) => (
+                    <option key={option.id} value={option.id}>{option.label}</option>
+                  ))}
+                </select>
               </label>
             </fieldset>
           )}

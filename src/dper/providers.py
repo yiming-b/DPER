@@ -60,7 +60,7 @@ class OpenAIProvider(LLMProvider):
 
 class ClaudeProvider(LLMProvider):
     def __init__(self, api_key: str | None = None, model: str | None = None, timeout: int = 180):
-        super().__init__(model or os.getenv("DPER_CLAUDE_MODEL", "claude-sonnet-4-5"))
+        super().__init__(model or os.getenv("DPER_CLAUDE_MODEL", "claude-sonnet-5"))
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
         self.timeout = timeout
         if not self.api_key:
