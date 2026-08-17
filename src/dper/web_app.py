@@ -7,6 +7,7 @@ from pathlib import Path
 
 from flask import Flask, abort, render_template, request, send_file
 
+from .dataset import preview_csv
 from .llm_pipeline import RunConfig, run_extraction
 from .providers import ProviderError, make_provider
 
@@ -36,7 +37,9 @@ def create_app() -> Flask:
             "index.html",
             summary=None,
             error=None,
-            download_url=None,
+            dataset_preview=None,
+            dataset_download_url=None,
+            zip_download_url=None,
             local_models=local_models(),
             default_openai_model=os.getenv("DPER_OPENAI_MODEL", "gpt-5.6-luna"),
             default_claude_model=os.getenv("DPER_CLAUDE_MODEL", "claude-sonnet-4-5"),
@@ -63,13 +66,11 @@ def create_app() -> Flask:
         if not pdf_paths:
             return _render_error("Upload at least one PDF report.")
 
-        provider_name = request.form.get("provider", "openai")
+        model_mode = request.form.get("model_mode", "default")
+        provider_name = "default" if model_mode == "default" else request.form.get("llm_provider", "openai")
         api_key = request.form.get("api_key") or None
         model = request.form.get("model") or None
-        local_model = request.form.get("local_model") or None
-        if provider_name == "local" and not local_model:
-            model_choices = local_models()
-            local_model = str(model_choices[0]) if model_choices else None
+        local_model = None
 
         try:
             provider = make_provider(provider_name, api_key=api_key, model=model, local_model=local_model)
@@ -87,13 +88,17 @@ def create_app() -> Flask:
         except (ProviderError, ValueError, RuntimeError) as exc:
             return _render_error(str(exc))
 
+        dataset_path = output_dir / "dataset.csv"
+        dataset_preview = preview_csv(dataset_path)
         archive_base = run_dir / "dper_results"
         zip_path = Path(shutil.make_archive(str(archive_base), "zip", output_dir))
         return render_template(
             "index.html",
             summary=summary,
             error=None,
-            download_url=f"/download/{run_id}",
+            dataset_preview=dataset_preview,
+            dataset_download_url=f"/download/{run_id}/dataset",
+            zip_download_url=f"/download/{run_id}/all",
             local_models=local_models(),
             default_openai_model=os.getenv("DPER_OPENAI_MODEL", "gpt-5.6-luna"),
             default_claude_model=os.getenv("DPER_CLAUDE_MODEL", "claude-sonnet-4-5"),
@@ -106,7 +111,9 @@ def create_app() -> Flask:
                 "index.html",
                 summary=None,
                 error=message,
-                download_url=None,
+                dataset_preview=None,
+                dataset_download_url=None,
+                zip_download_url=None,
                 local_models=local_models(),
                 default_openai_model=os.getenv("DPER_OPENAI_MODEL", "gpt-5.6-luna"),
                 default_claude_model=os.getenv("DPER_CLAUDE_MODEL", "claude-sonnet-4-5"),
@@ -114,8 +121,18 @@ def create_app() -> Flask:
             400,
         )
 
+    @app.get("/download/<run_id>/dataset")
+    def download_dataset(run_id: str):
+        if not run_id.replace("-", "").isalnum():
+            abort(404)
+        dataset_path = repo_root() / "web_runs" / run_id / "output" / "dataset.csv"
+        if not dataset_path.exists():
+            abort(404)
+        return send_file(dataset_path, as_attachment=True, download_name="dataset.csv")
+
+    @app.get("/download/<run_id>/all")
     @app.get("/download/<run_id>")
-    def download(run_id: str):
+    def download_all(run_id: str):
         if not run_id.replace("-", "").isalnum():
             abort(404)
         zip_path = repo_root() / "web_runs" / run_id / "dper_results.zip"

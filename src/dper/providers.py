@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -123,8 +124,210 @@ class DryRunProvider(LLMProvider):
         )
 
 
+class DefaultPhenotypeProvider(LLMProvider):
+    """Built-in dictionary-guided extractor used when no API key is supplied."""
+
+    def __init__(self):
+        super().__init__("default-dictionary-extractor")
+
+    def generate(self, system_prompt: str, user_prompt: str) -> str:
+        chunk = self._section(user_prompt, "REPORT CHUNK:", "OUTPUT JSON SHAPE:")
+        dictionary_rows = self._dictionary_rows(user_prompt)
+        source_file = self._metadata(user_prompt, "source_file")
+        dog = self._extract_dog(chunk, source_file)
+        events = self._extract_events(chunk, dictionary_rows)
+        visit = {
+            "visit_date": self._first_date(chunk),
+            "visit_type": "unknown",
+            "visit_reason_raw": "",
+            "evidence_quote": chunk[:240],
+            "page_number": self._first_page(chunk),
+            "confidence": 0.45,
+            "vitals": self._extract_vitals(chunk),
+            "diet_environment": {},
+            "exam_summaries": {},
+            "phenotype_events": events,
+            "lab_results": [],
+            "diagnostic_events": [],
+            "medication_events": [],
+            "procedure_events": [],
+        }
+        return json.dumps({"dog": dog, "visits": [visit], "new_candidate_phenotypes": []})
+
+    def _dictionary_rows(self, prompt: str) -> list[dict[str, Any]]:
+        start = prompt.find("[")
+        end = prompt.find("\n\nSOURCE METADATA:", start)
+        if start < 0 or end < 0:
+            return []
+        try:
+            data = json.loads(prompt[start:end].strip())
+        except json.JSONDecodeError:
+            return []
+        return data if isinstance(data, list) else []
+
+    def _section(self, prompt: str, start_label: str, end_label: str) -> str:
+        start = prompt.find(start_label)
+        if start < 0:
+            return ""
+        start += len(start_label)
+        end = prompt.find(end_label, start)
+        if end < 0:
+            end = len(prompt)
+        return prompt[start:end].strip()
+
+    def _metadata(self, prompt: str, key: str) -> str:
+        m = re.search(rf"(?m)^{re.escape(key)}:\s*(.+)$", prompt)
+        return m.group(1).strip() if m else ""
+
+    def _extract_dog(self, text: str, source_file: str = "") -> dict[str, Any]:
+        dog: dict[str, Any] = {"species": "canine", "evidence_quote": text[:220]}
+        patterns = {
+            "dog_name": [
+                r"PATIENT INFORMATION\s+Name\s+([A-Z][A-Za-z '\-()]{1,50})\s+Species\b",
+                r"\bName\s*:?\s*([A-Z][A-Za-z '\-()]{1,50})\s+Species\b",
+                r"\bPet Name\s*:?\s*([A-Z][A-Za-z '\-()]{1,50})\b",
+                r"\bPatient\s*:?\s*(?:#?\d+,?\s*)?([A-Z][A-Za-z '\-()]{1,50})(?:\s|\.|,)",
+                r"Clinical History for\s+([A-Z][A-Za-z '\-()]{1,50})\b",
+            ],
+            "breed_raw": [r"\bBreed\s*:?\s*([A-Za-z (),/&.\-]{2,80})", r"\bBreed \(Species\):\s*([^(\n]+)"],
+            "sex_raw": [r"\b(?:Sex|Gender)\s*:?\s*(Male\s*/\s*Neutered|Female\s*/\s*Spayed|Male,\s*Neutered|Female,\s*Spayed|Male Neutered|Female Spayed|MN|FS|Male|Female)"],
+            "date_of_birth": [r"\b(?:DOB|D\.O\.B\.|Birthday|Birthdate)\s*:?\s*([0-9A-Za-z/\-.]+)"],
+            "age_reported": [r"\bAge\s*:?\s*([0-9A-Za-z .]+)"],
+            "coat_color": [r"\b(?:Color|Coat Color|Colour)\s*:?\s*([A-Za-z/& \-]+)"],
+        }
+        for key, pats in patterns.items():
+            for pat in pats:
+                m = re.search(pat, text, re.I)
+                if m:
+                    value = re.sub(r"\s+", " ", m.group(1)).strip(" ,.;")
+                    if key == "dog_name" and self._reject_name(value):
+                        continue
+                    dog[key] = self._clean_demographic_value(key, value)
+                    break
+        if not dog.get("dog_name") and source_file:
+            dog["dog_name"] = Path(source_file).stem.split("_")[0].split("-")[0].strip() or None
+        sex_raw = dog.get("sex_raw", "").lower()
+        if "female" in sex_raw or sex_raw == "fs":
+            dog["sex"] = "female"
+        elif "male" in sex_raw or sex_raw == "mn":
+            dog["sex"] = "male"
+        if "spay" in sex_raw or sex_raw == "fs":
+            dog["reproductive_status"] = "spayed"
+        elif "neuter" in sex_raw or sex_raw == "mn":
+            dog["reproductive_status"] = "neutered"
+        return dog
+
+    def _reject_name(self, value: str) -> bool:
+        return value.lower().strip() in {
+            "chart",
+            "patient",
+            "patient information",
+            "client",
+            "client information",
+            "owner",
+            "medical history",
+        }
+
+    def _clean_demographic_value(self, key: str, value: str) -> str:
+        split_terms = {
+            "breed_raw": [" Age", " Sex", " Weight", " Color", " Address", " Home", " DOB", " D.O.B."],
+            "coat_color": [" Weight", " Tag", " Microchip", " Rabies", " DOB", " Age", " Sex"],
+            "age_reported": [" ID", " Color", " Sex", " Weight"],
+        }.get(key, [])
+        for term in split_terms:
+            idx = value.lower().find(term.lower())
+            if idx > 0:
+                value = value[:idx]
+        return value.strip(" ,.;")
+
+    def _extract_vitals(self, text: str) -> dict[str, Any]:
+        vitals: dict[str, Any] = {}
+        patterns = {
+            "weight_lb": r"\b(?:Weight|WT LB|Wt)\s*:?\s*([0-9]+(?:\.[0-9]+)?)\s*(?:lb|lbs|pounds|#)\b",
+            "weight_kg": r"\b(?:Weight|WT KG|Wt)\s*:?\s*([0-9]+(?:\.[0-9]+)?)\s*kg\b",
+            "temperature_f": r"\b(?:Temp|Temperature)\s*:?\s*([0-9]{2,3}(?:\.[0-9]+)?)",
+            "heart_rate_bpm": r"\b(?:Heart Rate|HR|Pulse)\s*:?\s*([0-9]{2,3})\b",
+            "respiratory_rate_bpm": r"\b(?:Respiration|Respiratory Rate|RR)\s*:?\s*([0-9]{1,3})\b",
+            "body_condition_score": r"\b(?:BCS|Body Condition Score)\s*:?\s*([0-9](?:\.[0-9])?)",
+        }
+        for key, pat in patterns.items():
+            m = re.search(pat, text, re.I)
+            if m:
+                vitals[key] = m.group(1)
+        return vitals
+
+    def _extract_events(self, text: str, dictionary_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        lowered = text.lower()
+        events: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for row in dictionary_rows:
+            if row.get("target_table") != "phenotype_events":
+                continue
+            phenotype_id = row.get("phenotype_id", "")
+            label = row.get("field_or_phenotype", "")
+            candidates = [label, phenotype_id.replace("_", " ")]
+            examples = str(row.get("examples_observed_in_reports", ""))
+            candidates.extend(re.findall(r"[A-Za-z][A-Za-z /-]{3,}", examples))
+            match_term = ""
+            for candidate in candidates:
+                term = candidate.lower().strip(" ,.;")
+                if len(term) >= 4 and term in lowered:
+                    match_term = candidate
+                    break
+            if not match_term or phenotype_id in seen:
+                continue
+            seen.add(phenotype_id)
+            events.append(
+                {
+                    "phenotype_id": phenotype_id,
+                    "status": self._status_for(text, match_term),
+                    "value_raw": match_term,
+                    "value_normalized": phenotype_id,
+                    "source_sentence": self._evidence(text, match_term),
+                    "page_number": self._first_page(text),
+                    "confidence": 0.52,
+                    "needs_review": "yes",
+                }
+            )
+        return events
+
+    def _status_for(self, text: str, term: str) -> str:
+        idx = text.lower().find(term.lower())
+        window = text[max(0, idx - 80) : idx + 120].lower() if idx >= 0 else text[:200].lower()
+        if re.search(r"\b(no|not|negative for|none|absent)\b", window):
+            return "absent"
+        if re.search(r"\br/o|rule out|rule-out|differential", window):
+            return "rule_out"
+        if re.search(r"\bsuspect|suspected|possible|concern for", window):
+            return "suspected"
+        if re.search(r"\bhistory of|historical|previous", window):
+            return "historical"
+        if re.search(r"\bresolved|inactive", window):
+            return "resolved"
+        return "present"
+
+    def _evidence(self, text: str, term: str) -> str:
+        idx = text.lower().find(term.lower())
+        if idx < 0:
+            return text[:300]
+        start = max(text.rfind(".", 0, idx), text.rfind("\n", 0, idx), 0)
+        end_candidates = [pos for pos in [text.find(".", idx), text.find("\n", idx)] if pos > idx]
+        end = min(end_candidates) if end_candidates else min(len(text), idx + 240)
+        return re.sub(r"\s+", " ", text[start:end]).strip(" .")[:400]
+
+    def _first_page(self, text: str) -> int:
+        m = re.search(r"=== PAGE (\d+) ===", text)
+        return int(m.group(1)) if m else 1
+
+    def _first_date(self, text: str) -> str:
+        m = re.search(r"\b(\d{1,2}/\d{1,2}/\d{2,4}|[A-Z][a-z]{2,8}\s+\d{1,2},\s+\d{4})\b", text)
+        return m.group(1) if m else ""
+
+
 def make_provider(provider: str, api_key: str | None = None, model: str | None = None, local_model: str | None = None) -> LLMProvider:
     provider = provider.lower().strip()
+    if provider in {"default", "builtin", "built-in"}:
+        return DefaultPhenotypeProvider()
     if provider == "openai":
         return OpenAIProvider(api_key=api_key, model=model)
     if provider in {"claude", "anthropic"}:

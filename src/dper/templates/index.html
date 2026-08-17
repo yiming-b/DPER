@@ -13,7 +13,7 @@
           <h1>DPER</h1>
           <p>Dog phenotype extraction from veterinary PDF reports</p>
         </div>
-        <div class="status-pill">CSV Output</div>
+        <div class="status-pill">dataset.csv</div>
       </header>
 
       {% if error %}
@@ -25,20 +25,44 @@
         <div>
           <strong>{{ summary.reports_processed }}</strong> report{% if summary.reports_processed != 1 %}s{% endif %} processed with {{ summary.provider }}.
         </div>
-        {% if download_url %}
-        <a class="button primary" href="{{ download_url }}">Download CSVs</a>
-        {% endif %}
+        <div class="actions">
+          {% if dataset_download_url %}
+          <a class="button primary" href="{{ dataset_download_url }}">Download dataset.csv</a>
+          {% endif %}
+          {% if zip_download_url %}
+          <a class="button secondary" href="{{ zip_download_url }}">Download All CSVs</a>
+          {% endif %}
+        </div>
       </section>
       {% endif %}
 
       <section class="workspace">
         <form class="control-panel" method="post" action="/extract" enctype="multipart/form-data">
           <fieldset>
-            <legend>Model</legend>
-            <div class="segmented">
-              <label><input type="radio" name="provider" value="openai" checked><span>OpenAI</span></label>
-              <label><input type="radio" name="provider" value="claude"><span>Claude</span></label>
-              <label><input type="radio" name="provider" value="local"><span>Local</span></label>
+            <legend>1. Extraction Model</legend>
+            <div class="choice-grid">
+              <label class="choice-card">
+                <input type="radio" name="model_mode" value="default" checked>
+                <span>
+                  <strong>Default Extractor</strong>
+                  <small>Built-in dictionary model, no API key</small>
+                </span>
+              </label>
+              <label class="choice-card">
+                <input type="radio" name="model_mode" value="api">
+                <span>
+                  <strong>Use API Key</strong>
+                  <small>OpenAI or Claude semantic extraction</small>
+                </span>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset id="api-settings" class="api-settings" hidden>
+            <legend>2. API Provider</legend>
+            <div class="segmented two">
+              <label><input type="radio" name="llm_provider" value="openai" checked><span>OpenAI</span></label>
+              <label><input type="radio" name="llm_provider" value="claude"><span>Claude</span></label>
             </div>
             <label class="field">
               <span>API key</span>
@@ -46,29 +70,20 @@
             </label>
             <label class="field">
               <span>Model id</span>
-              <input type="text" name="model" value="{{ default_openai_model }}" placeholder="{{ default_claude_model }}">
-            </label>
-            <label class="field">
-              <span>Local model</span>
-              <select name="local_model">
-                <option value="">No local model detected</option>
-                {% for model in local_models %}
-                <option value="{{ model }}">{{ model.name }}</option>
-                {% endfor %}
-              </select>
+              <input type="text" name="model" placeholder="OpenAI: {{ default_openai_model }}; Claude: {{ default_claude_model }}">
             </label>
           </fieldset>
 
           <fieldset>
-            <legend>Reports</legend>
+            <legend>3. Dog PDF Reports</legend>
             <label class="dropzone">
               <input type="file" name="reports" accept="application/pdf,.pdf" multiple required>
-              <span>Select PDF reports</span>
+              <span>Select multiple PDF files</span>
             </label>
           </fieldset>
 
           <fieldset>
-            <legend>Extraction</legend>
+            <legend>4. Extraction Settings</legend>
             <div class="grid-two">
               <label class="field">
                 <span>Chunk chars</span>
@@ -85,23 +100,65 @@
             </label>
           </fieldset>
 
-          <button class="button primary" type="submit">Run Extraction</button>
+          <button class="button primary" type="submit">Generate dataset.csv</button>
         </form>
 
         <aside class="output-panel">
-          <h2>Run Tables</h2>
+          <h2>Output</h2>
+          <div class="metric">
+            <span>dataset.csv rows</span>
+            <strong>{{ dataset_preview.total_rows if dataset_preview else 0 }}</strong>
+          </div>
+          <div class="metric">
+            <span>dataset.csv columns</span>
+            <strong>{{ dataset_preview.total_columns if dataset_preview else 0 }}</strong>
+          </div>
           <div class="table-list">
-            <div><span>dog_summary.csv</span><strong>{{ summary.tables['dog_summary.csv'] if summary else 0 }}</strong></div>
-            <div><span>visit_summary.csv</span><strong>{{ summary.tables['visit_summary.csv'] if summary else 0 }}</strong></div>
             <div><span>phenotype_events.csv</span><strong>{{ summary.tables['phenotype_events.csv'] if summary else 0 }}</strong></div>
-            <div><span>lab_results.csv</span><strong>{{ summary.tables['lab_results.csv'] if summary else 0 }}</strong></div>
-            <div><span>diagnostic_events.csv</span><strong>{{ summary.tables['diagnostic_events.csv'] if summary else 0 }}</strong></div>
-            <div><span>medication_events.csv</span><strong>{{ summary.tables['medication_events.csv'] if summary else 0 }}</strong></div>
-            <div><span>procedure_events.csv</span><strong>{{ summary.tables['procedure_events.csv'] if summary else 0 }}</strong></div>
             <div><span>new_candidate_phenotypes.csv</span><strong>{{ summary.tables['new_candidate_phenotypes.csv'] if summary else 0 }}</strong></div>
           </div>
         </aside>
       </section>
+
+      {% if dataset_preview and dataset_preview.columns %}
+      <section class="preview-panel">
+        <div class="preview-header">
+          <h2>Preview</h2>
+          <span>{{ dataset_preview.total_rows }} row{% if dataset_preview.total_rows != 1 %}s{% endif %}, {{ dataset_preview.total_columns }} columns</span>
+        </div>
+        <div class="preview-scroll">
+          <table>
+            <thead>
+              <tr>
+                {% for column in dataset_preview.columns %}
+                <th>{{ column }}</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in dataset_preview.rows %}
+              <tr>
+                {% for column in dataset_preview.columns %}
+                <td>{{ row[column] }}</td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {% endif %}
     </main>
+
+    <script>
+      const modeInputs = document.querySelectorAll('input[name="model_mode"]');
+      const apiSettings = document.getElementById('api-settings');
+      function syncMode() {
+        const selected = document.querySelector('input[name="model_mode"]:checked');
+        apiSettings.hidden = !selected || selected.value !== 'api';
+      }
+      modeInputs.forEach((input) => input.addEventListener('change', syncMode));
+      syncMode();
+    </script>
   </body>
 </html>

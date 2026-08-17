@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .dataset import build_dataset_csv
 from .dictionary import compact_dictionary_rows, load_dictionary, select_dictionary_subset
 from .pdf_text import ExtractedReport, chunk_pages, extract_pdf_text, read_reports
 from .prompts import SYSTEM_PROMPT, build_user_prompt
@@ -457,6 +458,7 @@ def run_extraction(config: RunConfig) -> dict[str, Any]:
     for table_name, columns in TABLE_COLUMNS.items():
         write_csv(config.output_dir / table_name, all_rows[table_name], columns, append=config.append)
 
+    dataset_path = build_dataset_csv(config.output_dir, config.dictionary_path)
     combined_manifest = existing_manifest + run_manifest
     (config.output_dir / "run_manifest.json").write_text(json.dumps(combined_manifest, indent=2), encoding="utf-8")
 
@@ -467,6 +469,7 @@ def run_extraction(config: RunConfig) -> dict[str, Any]:
         "tables": {name: len(rows) for name, rows in all_rows.items()},
         "provider": config.provider.__class__.__name__,
         "model": config.provider.model,
+        "dataset_csv": str(dataset_path),
     }
     (config.output_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     return summary

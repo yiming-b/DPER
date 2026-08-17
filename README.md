@@ -17,6 +17,7 @@ Raw sample reports and generated patient-level outputs are intentionally exclude
 
 Each run writes:
 
+- `dataset.csv`
 - `dog_summary.csv`
 - `visit_summary.csv`
 - `phenotype_events.csv`
@@ -82,15 +83,21 @@ http://127.0.0.1:7860
 
 In the UI:
 
-1. Choose OpenAI, Claude, or Local.
-2. Enter the API key for API providers.
+1. Choose the default built-in extractor or API-backed LLM extraction.
+2. If using an API-backed LLM, choose OpenAI or Claude and enter an API key.
 3. Upload one or more PDF reports.
-4. Run extraction.
-5. Download the ZIP file containing CSV outputs.
+4. Generate `dataset.csv`.
+5. Preview `dataset.csv` in the page and download it directly.
 
 The UI redacts common phone numbers, emails, and simple street-address patterns before API calls by default.
 
 ## Run From CLI
+
+Default built-in extractor:
+
+```powershell
+python .\scripts\llm_extract.py --provider default --input "C:\path\to\reports" --output .\output\dper_default
+```
 
 OpenAI:
 
