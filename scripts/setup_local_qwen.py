@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 from __future__ import annotations
 
+import argparse
+import os
 import subprocess
 import sys
-import argparse
 from pathlib import Path
 
 
@@ -27,9 +28,15 @@ def main() -> None:
         run([sys.executable, "-m", "pip", "install", "-e", ".[local]"], repo_root)
     if not args.skip_download:
         run([sys.executable, str(repo_root / "scripts" / "download_qwen3_4b.py")], repo_root)
+    if os.name == "nt":
+        web_command = "python .\\scripts\\run_web.py"
+        cli_command = 'python .\\scripts\\llm_extract.py --provider local-qwen --input ".\\reports" --output ".\\output\\dper_qwen"'
+    else:
+        web_command = "python scripts/run_web.py"
+        cli_command = 'python scripts/llm_extract.py --provider local-qwen --input "./reports" --output "./output/dper_qwen"'
     print("\nLocal Qwen setup is ready.")
-    print("Start the web UI with: python .\\scripts\\run_web.py")
-    print("Or run CLI extraction with: python .\\scripts\\llm_extract.py --provider local-qwen --input \".\\reports\" --output \".\\output\\dper_qwen\"")
+    print(f"Start the web UI with: {web_command}")
+    print(f"Or run CLI extraction with: {cli_command}")
 
 
 if __name__ == "__main__":

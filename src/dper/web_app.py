@@ -57,7 +57,9 @@ def default_model_options() -> list[dict[str, str]]:
             {
                 "id": "qwen3-4b",
                 "label": "Qwen3 4B Q4_K_M",
-                "detail": f"Recommended local semantic model. Not downloaded yet. Run python .\\scripts\\setup_local_qwen.py.",
+                "detail": "Recommended local semantic model. Not downloaded yet. "
+                "Windows: python .\\scripts\\setup_local_qwen.py. "
+                "Linux/macOS: python scripts/setup_local_qwen.py.",
                 "value": str(recommended),
                 "available": "no",
                 "selected": "no",

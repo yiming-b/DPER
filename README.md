@@ -36,6 +36,8 @@ Use `phenotype_id` as the stable machine key. The dictionary column `field_or_ph
 
 Recommended local setup, no API key:
 
+Windows PowerShell:
+
 ```powershell
 git clone https://github.com/yiming-b/DPER.git
 cd DPER
@@ -43,6 +45,17 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python .\scripts\setup_local_qwen.py
 python .\scripts\run_web.py
+```
+
+Linux/macOS:
+
+```bash
+git clone https://github.com/yiming-b/DPER.git
+cd DPER
+python3 -m venv .venv
+source .venv/bin/activate
+python scripts/setup_local_qwen.py
+python scripts/run_web.py
 ```
 
 Then open:
@@ -53,13 +66,30 @@ http://127.0.0.1:7860
 
 Full CLI command for local Qwen mode:
 
+Windows PowerShell:
+
 ```powershell
 python .\scripts\llm_extract.py --provider local-qwen --input ".\reports" --output ".\output\dper_qwen"
 ```
 
+Linux/macOS:
+
+```bash
+python scripts/llm_extract.py --provider local-qwen --input "./reports" --output "./output/dper_qwen"
+```
+
 Minimal install without downloading Qwen:
 
+Windows PowerShell:
+
 ```powershell
+python -m pip install --upgrade pip
+python -m pip install -e .
+```
+
+Linux/macOS:
+
+```bash
 python -m pip install --upgrade pip
 python -m pip install -e .
 ```
@@ -78,8 +108,16 @@ The browser dataset includes dog identity and demographic columns such as `dog_n
 
 Local Python UI:
 
+Windows PowerShell:
+
 ```powershell
 python .\scripts\run_web.py
+```
+
+Linux/macOS:
+
+```bash
+python scripts/run_web.py
 ```
 
 Open:
@@ -102,38 +140,86 @@ The UI redacts common phone numbers, emails, and simple street-address patterns 
 
 Recommended local Qwen mode:
 
+Windows PowerShell:
+
 ```powershell
 python .\scripts\llm_extract.py --provider local-qwen --input ".\reports" --output ".\output\dper_qwen"
 ```
 
+Linux/macOS:
+
+```bash
+python scripts/llm_extract.py --provider local-qwen --input "./reports" --output "./output/dper_qwen"
+```
+
 Default built-in extractor:
+
+Windows PowerShell:
 
 ```powershell
 python .\scripts\llm_extract.py --provider default --input "C:\path\to\reports" --output .\output\dper_default
 ```
 
+Linux/macOS:
+
+```bash
+python scripts/llm_extract.py --provider default --input "/path/to/reports" --output ./output/dper_default
+```
+
 OpenAI:
+
+Windows PowerShell:
 
 ```powershell
 python .\scripts\llm_extract.py --provider openai --input "C:\path\to\reports" --output .\output\dper_openai
 ```
 
+Linux/macOS:
+
+```bash
+python scripts/llm_extract.py --provider openai --input "/path/to/reports" --output ./output/dper_openai
+```
+
 Claude:
+
+Windows PowerShell:
 
 ```powershell
 python .\scripts\llm_extract.py --provider claude --input "C:\path\to\reports" --output .\output\dper_claude
 ```
 
+Linux/macOS:
+
+```bash
+python scripts/llm_extract.py --provider claude --input "/path/to/reports" --output ./output/dper_claude
+```
+
 Pass an API key directly only for temporary use:
+
+Windows PowerShell:
 
 ```powershell
 python .\scripts\llm_extract.py --provider openai --api-key "your_key" --input ".\reports" --output ".\output"
 ```
 
+Linux/macOS:
+
+```bash
+python scripts/llm_extract.py --provider openai --api-key "your_key" --input "./reports" --output "./output"
+```
+
 Append new reports to an existing output folder:
+
+Windows PowerShell:
 
 ```powershell
 python .\scripts\llm_extract.py --provider openai --input "C:\path\to\new_reports" --output .\output\dper_openai --append
+```
+
+Linux/macOS:
+
+```bash
+python scripts/llm_extract.py --provider openai --input "/path/to/new_reports" --output ./output/dper_openai --append
 ```
 
 Append mode skips reports already present in `run_manifest.json` by SHA-256 hash.
@@ -144,23 +230,48 @@ API-backed extraction is optional. The UI accepts an API key for a single run an
 
 OpenAI:
 
+Windows PowerShell:
+
 ```powershell
 setx OPENAI_API_KEY "your_openai_key"
 ```
 
+Linux/macOS:
+
+```bash
+export OPENAI_API_KEY="your_openai_key"
+```
+
 Claude:
+
+Windows PowerShell:
 
 ```powershell
 setx ANTHROPIC_API_KEY "your_anthropic_key"
 ```
 
-Open a new terminal after `setx`.
+Linux/macOS:
+
+```bash
+export ANTHROPIC_API_KEY="your_anthropic_key"
+```
+
+On Windows, open a new terminal after `setx`.
 
 Optional model defaults:
+
+Windows PowerShell:
 
 ```powershell
 setx DPER_OPENAI_MODEL "gpt-5.6-luna"
 setx DPER_CLAUDE_MODEL "claude-sonnet-5"
+```
+
+Linux/macOS:
+
+```bash
+export DPER_OPENAI_MODEL="gpt-5.6-luna"
+export DPER_CLAUDE_MODEL="claude-sonnet-5"
 ```
 
 You can select a supported model from the UI dropdown or pass a model id with `--model`.
@@ -181,8 +292,16 @@ To manually set up the recommended Qwen3 4B GGUF model:
 
 One-command setup:
 
+Windows PowerShell:
+
 ```powershell
 python .\scripts\setup_local_qwen.py
+```
+
+Linux/macOS:
+
+```bash
+python scripts/setup_local_qwen.py
 ```
 
 Or run the steps separately.
@@ -201,8 +320,16 @@ dper-download-qwen3
 
 From a source checkout, this equivalent script also works:
 
+Windows PowerShell:
+
 ```powershell
 python .\scripts\download_qwen3_4b.py
+```
+
+Linux/macOS:
+
+```bash
+python scripts/download_qwen3_4b.py
 ```
 
 This downloads `Qwen/Qwen3-4B-GGUF:Q4_K_M` to:
@@ -211,16 +338,38 @@ This downloads `Qwen/Qwen3-4B-GGUF:Q4_K_M` to:
 .\models\Qwen3-4B-Q4_K_M.gguf
 ```
 
+On Linux/macOS, the same file is:
+
+```bash
+./models/Qwen3-4B-Q4_K_M.gguf
+```
+
 3. Run from the local web UI, where Qwen3 4B is auto-selected when downloaded, or run from CLI:
+
+Windows PowerShell:
 
 ```powershell
 python .\scripts\llm_extract.py --provider local-qwen --input ".\reports" --output ".\output\dper_qwen"
 ```
 
+Linux/macOS:
+
+```bash
+python scripts/llm_extract.py --provider local-qwen --input "./reports" --output "./output/dper_qwen"
+```
+
 To use a different local instruct `.gguf` model:
+
+Windows PowerShell:
 
 ```powershell
 python .\scripts\llm_extract.py --provider local --local-model .\models\your-instruct-model.gguf --input ".\reports" --output ".\output\dper_local"
+```
+
+Linux/macOS:
+
+```bash
+python scripts/llm_extract.py --provider local --local-model ./models/your-instruct-model.gguf --input "./reports" --output "./output/dper_local"
 ```
 
 Local model quality depends heavily on the model and computer speed. For best results, benchmark Qwen3 4B against a reviewed subset of reports before processing a large folder.
@@ -249,9 +398,19 @@ docs/                     Design notes and prompt template
 
 ## Development Checks
 
+Windows PowerShell:
+
 ```powershell
 $files = @(Get-ChildItem -Recurse .\src, .\scripts -Filter *.py | Select-Object -ExpandProperty FullName)
 python -m py_compile @files
 python .\scripts\setup_local_qwen.py --help
 python .\scripts\llm_extract.py --provider dry-run --input "C:\path\to\one_report.pdf" --output .\tmp\dry_run
+```
+
+Linux/macOS:
+
+```bash
+python -m py_compile $(find src scripts -name "*.py")
+python scripts/setup_local_qwen.py --help
+python scripts/llm_extract.py --provider dry-run --input "/path/to/one_report.pdf" --output ./tmp/dry_run
 ```
