@@ -13,6 +13,18 @@ def run(command: list[str], cwd: Path, env: dict[str, str]) -> None:
     subprocess.check_call(command, cwd=cwd, env=env)
 
 
+def verify_gpu_offload(repo_root: Path, env: dict[str, str]) -> None:
+    check = (
+        "import sys; "
+        f"sys.path.insert(0, {str(repo_root / 'src')!r}); "
+        "from dper.providers import llama_supports_gpu_offload; "
+        "value = llama_supports_gpu_offload(); "
+        "print(f'llama_supports_gpu_offload={value}'); "
+        "raise SystemExit(0 if value is True else 1)"
+    )
+    run([sys.executable, "-c", check], repo_root, env)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Install local DPER extras and download the recommended Qwen3 4B model.")
     parser.add_argument("--skip-install", action="store_true", help="Do not run pip install -e .[local].")
@@ -49,6 +61,8 @@ def main() -> None:
                     "--upgrade",
                     "--force-reinstall",
                     "--no-cache-dir",
+                    "--only-binary",
+                    "llama-cpp-python",
                     "llama-cpp-python",
                     "--extra-index-url",
                     f"https://abetlen.github.io/llama-cpp-python/whl/{args.cuda_wheel}",
@@ -74,6 +88,7 @@ def main() -> None:
                 repo_root,
                 cuda_env,
             )
+        verify_gpu_offload(repo_root, local_env)
     if not args.skip_download:
         run([sys.executable, str(repo_root / "scripts" / "download_qwen3_4b.py")], repo_root, local_env)
     if os.name == "nt":

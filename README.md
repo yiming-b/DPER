@@ -352,6 +352,7 @@ Then install a matching prebuilt CUDA wheel when available. For example, for CUD
 cd DPER
 source .venv/bin/activate
 python -m pip install --upgrade --force-reinstall --no-cache-dir llama-cpp-python \
+  --only-binary llama-cpp-python \
   --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
 export DPER_LOCAL_GPU_LAYERS=-1
 export DPER_LOCAL_VERBOSE=1
@@ -359,6 +360,8 @@ python scripts/check_local_qwen_gpu.py --skip-generate
 python scripts/check_local_qwen_gpu.py
 python scripts/run_web.py
 ```
+
+The `--only-binary llama-cpp-python` flag is intentional: it prevents pip from falling back to a CPU source build when the CUDA wheel is not compatible with your Python/CUDA environment.
 
 Use `cu121`, `cu122`, `cu123`, `cu124`, `cu125`, `cu130`, or `cu132` to match the CUDA version on the node. The setup helper can run the same wheel install:
 
