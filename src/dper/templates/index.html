@@ -65,17 +65,17 @@
 
           <fieldset id="default-settings" class="default-settings">
             <legend>2. Default Extractor Models</legend>
-            <div class="model-list">
-              {% for option in default_model_options %}
-              <label class="model-row {% if option.available == 'yes' %}ready{% else %}missing{% endif %}">
-                <input type="radio" name="default_model" value="{{ option.id }}" data-model-path="{{ option.value }}" {% if option.selected == 'yes' %}checked{% endif %} {% if option.available != 'yes' %}disabled{% endif %}>
-                <span>
-                  <strong>{{ option.label }}</strong>
-                  <small>{{ option.detail }}</small>
-                </span>
-              </label>
-              {% endfor %}
-            </div>
+            <label class="field model-select-field">
+              <span>Default/local model</span>
+              <select name="default_model" id="default-model-select">
+                {% for option in default_model_options %}
+                <option value="{{ option.id }}" data-model-path="{{ option.value }}" data-detail="{{ option.detail }}" data-available="{{ option.available }}" {% if option.selected == 'yes' %}selected{% endif %} {% if option.available != 'yes' %}disabled{% endif %}>
+                  {{ option.label }}{% if option.available != 'yes' %} (not downloaded){% endif %}
+                </option>
+                {% endfor %}
+              </select>
+            </label>
+            <p class="helper-text model-detail" id="default-model-detail"></p>
             <input type="hidden" name="default_model_path" id="default-model-path" value="">
           </fieldset>
 
@@ -182,7 +182,7 @@
               </label>
             </div>
             <p class="helper-text" id="local-settings-note" hidden>
-              Local Qwen mode is slow on CPU. Start with one PDF; the UI uses smaller local-model settings by default.
+              Local GGUF mode is slow on CPU. Start with one PDF; the UI uses smaller local-model settings by default.
             </p>
             <label class="toggle">
               <input type="checkbox" name="redact" checked>
@@ -244,14 +244,15 @@
       {% endif %}
     </main>
 
-    <script>
+      <script>
       const modeInputs = document.querySelectorAll('input[name="model_mode"]');
-      const defaultModelInputs = document.querySelectorAll('input[name="default_model"]');
+      const defaultModelSelect = document.getElementById('default-model-select');
       const providerInputs = document.querySelectorAll('input[name="llm_provider"]');
       const reportInput = document.querySelector('input[name="reports"]');
       const apiSettings = document.getElementById('api-settings');
       const defaultSettings = document.getElementById('default-settings');
       const defaultModelPath = document.getElementById('default-model-path');
+      const defaultModelDetail = document.getElementById('default-model-detail');
       const modelSelect = document.getElementById('model-select');
       const form = document.getElementById('extract-form');
       const submitButton = document.getElementById('submit-button');
@@ -267,8 +268,7 @@
       let dictionaryEdited = false;
       function isLocalDefaultModel() {
         const selectedMode = document.querySelector('input[name="model_mode"]:checked');
-        const selectedDefault = document.querySelector('input[name="default_model"]:checked');
-        return selectedMode && selectedMode.value === 'default' && selectedDefault && selectedDefault.value !== 'builtin';
+        return selectedMode && selectedMode.value === 'default' && defaultModelSelect && defaultModelSelect.value !== 'builtin';
       }
       function applyModelSettings() {
         const isLocal = isLocalDefaultModel();
@@ -287,8 +287,12 @@
         applyModelSettings();
       }
       function syncDefaultModel() {
-        const selected = document.querySelector('input[name="default_model"]:checked');
+        const selected = defaultModelSelect ? defaultModelSelect.selectedOptions[0] : null;
         defaultModelPath.value = selected ? selected.dataset.modelPath || '' : '';
+        if (defaultModelDetail) {
+          defaultModelDetail.textContent = selected ? selected.dataset.detail || '' : '';
+          defaultModelDetail.classList.toggle('missing-model', Boolean(selected && selected.dataset.available !== 'yes'));
+        }
         applyModelSettings();
       }
       function syncProvider() {
@@ -306,7 +310,7 @@
         }
       }
       modeInputs.forEach((input) => input.addEventListener('change', syncMode));
-      defaultModelInputs.forEach((input) => input.addEventListener('change', syncDefaultModel));
+      if (defaultModelSelect) defaultModelSelect.addEventListener('change', syncDefaultModel);
       providerInputs.forEach((input) => input.addEventListener('change', syncProvider));
       chunkInput.addEventListener('input', () => { chunkEdited = true; });
       dictionaryInput.addEventListener('input', () => { dictionaryEdited = true; });
@@ -351,7 +355,7 @@
           ? 'Running local model...'
           : 'Generating dataset.csv...';
         runningMessage.textContent = isLocalDefaultModel()
-          ? 'Starting local Qwen extraction. Model loading may take a few minutes.'
+          ? 'Starting local GGUF extraction. Model loading may take a few minutes.'
           : 'Starting extraction...';
         runningNotice.hidden = false;
         try {

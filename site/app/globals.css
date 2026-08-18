@@ -235,47 +235,13 @@ legend {
   line-height: 1.4;
 }
 
-.model-list {
-  display: grid;
-  gap: 10px;
-  margin-bottom: 12px;
+.model-select-field {
+  margin-bottom: 8px;
 }
 
-.model-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: start;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: #f9fbfc;
-  padding: 11px;
-}
-
-.model-row.active {
-  border-color: #8fb99a;
-  background: #f2faf4;
-}
-
-.model-row span {
-  display: grid;
-  gap: 4px;
-}
-
-.model-row small {
-  color: var(--muted);
-  line-height: 1.35;
-}
-
-.model-row em {
-  align-self: start;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 4px 7px;
-  color: var(--muted);
-  font-size: 12px;
-  font-style: normal;
-  white-space: nowrap;
+.model-detail {
+  min-height: 40px;
+  overflow-wrap: anywhere;
 }
 
 .helper-text {

@@ -56,21 +56,21 @@ const DEFAULT_MODEL_BY_PROVIDER: Record<Provider, string> = {
 
 const DEFAULT_EXTRACTOR_OPTIONS: DefaultExtractorOption[] = [
   {
-    id: "qwen3-4b-q4km",
-    label: "Qwen3 4B Q4_K_M",
-    detail: "Recommended local semantic model. Create .venv inside DPER, then run setup: Windows uses python .\\scripts\\setup_local_qwen.py; Linux/macOS uses python scripts/setup_local_qwen.py. Models save to DPER/models.",
-    availability: "Recommended local",
-  },
-  {
     id: "regex-dictionary",
     label: "Regex/dictionary extractor",
     detail: "Fallback extractor that runs directly in this browser app. Fast, no API key, no model download.",
     availability: "Available here",
   },
   {
+    id: "qwen3-4b-q4km",
+    label: "Qwen3 4B Q4_K_M",
+    detail: "Recommended local semantic model. Create .venv inside DPER, then run setup: Windows uses python .\\scripts\\setup_local_qwen.py; Linux/macOS uses python scripts/setup_local_qwen.py. Models save to DPER/models.",
+    availability: "Local backend",
+  },
+  {
     id: "downloaded-gguf",
     label: "Downloaded GGUF models",
-    detail: "The local Python UI detects .gguf files placed in models/. The public hosted page cannot inspect files on a user's computer.",
+    detail: "The local Python UI detects .gguf files placed in models/, including Qwen, Mistral, DeepSeek, Llama, and other compatible GGUF downloads.",
     availability: "Local backend",
   },
 ];
@@ -262,6 +262,7 @@ export default function Home() {
   const [provider, setProvider] = useState<Provider>("openai");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState(DEFAULT_MODEL_BY_PROVIDER.openai);
+  const [defaultExtractor, setDefaultExtractor] = useState(DEFAULT_EXTRACTOR_OPTIONS[0].id);
   const [phenotypeText, setPhenotypeText] = useState("");
   const [selectedIdentityColumns, setSelectedIdentityColumns] = useState<string[]>(IDENTITY_COLUMNS);
   const [selectedDefaultPhenotypeIds, setSelectedDefaultPhenotypeIds] = useState<string[]>(DEFAULT_PHENOTYPES.map((phenotype) => phenotype.id));
@@ -291,6 +292,7 @@ export default function Home() {
   const fileStep = "4";
   const modelOptions = MODEL_OPTIONS[provider];
   const selectedModel = modelOptions.some((option) => option.id === model) ? model : DEFAULT_MODEL_BY_PROVIDER[provider];
+  const selectedDefaultExtractor = DEFAULT_EXTRACTOR_OPTIONS.find((option) => option.id === defaultExtractor) || DEFAULT_EXTRACTOR_OPTIONS[0];
 
   function handleProviderChange(nextProvider: Provider) {
     setProvider(nextProvider);
@@ -415,19 +417,19 @@ export default function Home() {
           {mode === "default" && (
             <fieldset>
               <legend>2. Default / Local Models</legend>
-              <div className="model-list">
-                {DEFAULT_EXTRACTOR_OPTIONS.map((option) => (
-                  <div className={`model-row${option.id === "qwen3-4b-q4km" ? " active" : ""}`} key={option.id}>
-                    <span>
-                      <strong>{option.label}</strong>
-                      <small>{option.detail}</small>
-                    </span>
-                    <em>{option.availability}</em>
-                  </div>
-                ))}
-              </div>
+              <label className="field model-select-field">
+                <span>Default/local model</span>
+                <select value={defaultExtractor} onChange={(event) => setDefaultExtractor(event.target.value)}>
+                  {DEFAULT_EXTRACTOR_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id} disabled={option.availability !== "Available here"}>
+                      {option.label}{option.availability !== "Available here" ? " (local Python UI)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="helper-text model-detail">{selectedDefaultExtractor.detail}</p>
               <p className="helper-text compact-note">
-                This hosted page uses the regex/dictionary extractor for default runs. Downloaded Qwen or other GGUF models run in the local Python website at 127.0.0.1:7860.
+                This hosted page uses the regex/dictionary extractor for default runs. Downloaded GGUF models run in the local Python website at 127.0.0.1:7860.
               </p>
             </fieldset>
           )}

@@ -442,6 +442,8 @@ Suggested benchmark order on a CUDA node with an A100 40GB:
 ```bash
 python scripts/download_model.py --model qwen3-14b
 python scripts/download_model.py --model mistral-small-24b
+python scripts/download_model.py --model qwen3-30b-a3b
+python scripts/download_model.py --model qwen3-30b-a3b-q8
 python scripts/download_model.py --model deepseek-r1-qwen-14b
 ```
 
@@ -450,6 +452,17 @@ Larger and slower options:
 ```bash
 python scripts/download_model.py --model qwen3-32b
 python scripts/download_model.py --model deepseek-r1-qwen-32b
+python scripts/download_model.py --model qwen2.5-72b-q3
+python scripts/download_model.py --model llama3.3-70b-q3
+python scripts/download_model.py --model deepseek-r1-llama-70b-q3
+```
+
+Very large options that may require partial CPU offload or smaller context on a single A100 40GB:
+
+```bash
+python scripts/download_model.py --model qwen2.5-72b-q4
+python scripts/download_model.py --model llama3.3-70b-q4
+python scripts/download_model.py --model deepseek-r1-llama-70b-q4
 ```
 
 Gemma 3 27B is also available as a preset, but its Hugging Face repository is gated. Accept Google's license on Hugging Face, then set `HF_TOKEN` or `HUGGINGFACE_HUB_TOKEN` before downloading:
@@ -514,6 +527,12 @@ python scripts/llm_extract.py --provider local --local-model ./models/Qwen3-14B-
 After downloading a model, restart the local web UI. Any `.gguf` file in `models/` appears in the local model list.
 
 Local model quality depends heavily on the model and computer speed. Qwen3 4B is useful as a small no-API semantic extractor, but it can miss simple identity fields in messy multi-column veterinary PDFs. DPER therefore extracts core dog identity and demographics with deterministic report-template parsing before model chunks run, then lets the local model add visit and phenotype-event evidence. For best results, benchmark several models against the same reviewed subset of reports before processing a large folder.
+
+For a quick larger-model benchmark set, after activating the DPER virtual environment:
+
+```bash
+for m in qwen3-30b-a3b qwen3-30b-a3b-q8 qwen2.5-72b-q3 llama3.3-70b-q3 deepseek-r1-llama-70b-q3; do python scripts/download_model.py --model "$m"; done
+```
 
 ## Repository Layout
 
