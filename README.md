@@ -355,6 +355,7 @@ python -m pip install --upgrade --force-reinstall --no-cache-dir llama-cpp-pytho
   --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
 export DPER_LOCAL_GPU_LAYERS=-1
 export DPER_LOCAL_VERBOSE=1
+python scripts/check_local_qwen_gpu.py --skip-generate
 python scripts/check_local_qwen_gpu.py
 python scripts/run_web.py
 ```
@@ -374,11 +375,12 @@ CMAKE_ARGS="-DGGML_CUDA=on" FORCE_CMAKE=1 \
   python -m pip install --upgrade --force-reinstall --no-cache-dir llama-cpp-python
 export DPER_LOCAL_GPU_LAYERS=-1
 export DPER_LOCAL_VERBOSE=1
+python scripts/check_local_qwen_gpu.py --skip-generate
 python scripts/check_local_qwen_gpu.py
 python scripts/run_web.py
 ```
 
-The check script prints the resolved DPER runtime settings and enables verbose llama.cpp logs. Look for CUDA-related llama.cpp load messages and layer offload messages in the terminal, and confirm activity with `nvidia-smi` during the short test generation.
+The check script prints the Python path, llama-cpp-python package path, GPU offload support flag, verbose llama.cpp logs, and `nvidia-smi` before/after model load. Run `--skip-generate` first. If that shows no GPU offload support or no GPU memory after model load, fix the CUDA install before running report extraction. Then run the full check without `--skip-generate` to test a tiny raw completion.
 
 For the recommended public Qwen3 4B GGUF download, users do not need a Hugging Face account or token. A Hugging Face account/token is only needed for gated or private model repositories, such as some Llama-family distributions or privately hosted model files.
 

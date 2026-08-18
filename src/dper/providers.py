@@ -33,6 +33,20 @@ def env_flag(name: str, default: bool = False) -> bool:
     return value.lower() in {"1", "true", "yes", "on"}
 
 
+def llama_supports_gpu_offload() -> bool | None:
+    try:
+        from llama_cpp import llama_cpp
+    except Exception:
+        return None
+    support_fn = getattr(llama_cpp, "llama_supports_gpu_offload", None)
+    if support_fn is None:
+        return None
+    try:
+        return bool(support_fn())
+    except Exception:
+        return None
+
+
 @dataclass
 class LLMProvider:
     model: str
@@ -146,12 +160,19 @@ class LocalGGUFProvider(LLMProvider):
             resolved_gpu_layers = int(os.getenv("DPER_LOCAL_GPU_LAYERS", "0"))
         if resolved_gpu_layers is None:
             resolved_gpu_layers = -1 if cuda_visible() else 0
+        gpu_support = llama_supports_gpu_offload()
+        if resolved_gpu_layers != 0 and gpu_support is False:
+            raise ProviderError(
+                "The installed llama-cpp-python build does not report GPU offload support. "
+                "Reinstall it with a CUDA wheel, for example: "
+                "python scripts/setup_local_qwen.py --skip-download --cuda-wheel cu132"
+            )
         resolved_verbose = env_flag("DPER_LOCAL_VERBOSE", resolved_gpu_layers != 0) if verbose is None else verbose
         self.runtime_summary = (
             "Local GGUF runtime: "
             f"model={path}, n_ctx={resolved_n_ctx}, max_tokens={self.max_tokens}, "
             f"n_threads={resolved_threads}, n_gpu_layers={resolved_gpu_layers}, "
-            f"cuda_visible={cuda_visible()}, verbose={resolved_verbose}"
+            f"cuda_visible={cuda_visible()}, gpu_offload_support={gpu_support}, verbose={resolved_verbose}"
         )
         print(self.runtime_summary, file=sys.stderr, flush=True)
         llama_kwargs: dict[str, Any] = {
