@@ -471,7 +471,7 @@ Linux/macOS:
 python scripts/llm_extract.py --provider local --local-model ./models/your-instruct-model.gguf --input "./reports" --output "./output/dper_local"
 ```
 
-Local model quality depends heavily on the model and computer speed. For best results, benchmark Qwen3 4B against a reviewed subset of reports before processing a large folder.
+Local model quality depends heavily on the model and computer speed. Qwen3 4B is useful as a small no-API semantic extractor, but it can miss simple identity fields in messy multi-column veterinary PDFs. DPER therefore extracts core dog identity and demographics with deterministic report-template parsing before model chunks run, then lets the local model add visit and phenotype-event evidence. For best results, benchmark Qwen3 4B against a reviewed subset of reports before processing a large folder.
 
 ## Repository Layout
 

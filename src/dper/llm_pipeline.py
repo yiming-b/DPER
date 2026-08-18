@@ -10,7 +10,7 @@ from .dataset import build_dataset_csv
 from .dictionary import compact_dictionary_rows, load_dictionary, select_dictionary_subset
 from .pdf_text import ExtractedReport, chunk_pages, extract_pdf_text, read_reports
 from .prompts import SYSTEM_PROMPT, build_user_prompt
-from .providers import LLMProvider
+from .providers import DefaultPhenotypeProvider, LLMProvider
 from .schema import (
     CANDIDATE_COLUMNS,
     DIAG_COLUMNS,
@@ -63,11 +63,27 @@ def _progress(callback: ProgressCallback | None, message: str) -> None:
         callback(message)
 
 
+def _is_missing_value(value: Any) -> bool:
+    if value in (None, "", [], {}):
+        return True
+    if isinstance(value, str) and norm_space(value).lower() in {"unknown", "not reported", "not_reported", "n/a", "na", "none", "null"}:
+        return True
+    return False
+
+
 def _merge_dog(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
     for key, value in (update or {}).items():
-        if value not in (None, "", [], {}) and not base.get(key):
+        if not _is_missing_value(value) and _is_missing_value(base.get(key)):
             base[key] = value
     return base
+
+
+def _full_report_text(report: ExtractedReport) -> str:
+    return "\n\n".join(page.text for page in report.pages)
+
+
+def _deterministic_dog_identity(report: ExtractedReport) -> dict[str, Any]:
+    return DefaultPhenotypeProvider()._extract_dog(_full_report_text(report), "")
 
 
 def _clean_status(value: Any) -> str:
@@ -367,12 +383,14 @@ def _process_report(
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, Any]]:
     rows = _empty_rows()
     phenotype_ids = {row.get("phenotype_id", "") for row in dictionary_rows}
-    merged_dog: dict[str, Any] = {}
+    merged_dog = _deterministic_dog_identity(report)
     llm_errors: list[str] = []
     dog_id = report.report.report_id.lower()
 
     chunks = chunk_pages(report.pages, chunk_chars)
     _progress(progress_callback, f"{report.report.path.name}: extracted {report.text_chars:,} text characters into {len(chunks)} chunk(s).")
+    if _dict_value(merged_dog, "dog_name"):
+        _progress(progress_callback, f"{report.report.path.name}: identified dog as {_dict_value(merged_dog, 'dog_name')} before model extraction.")
     for chunk_number, (page_start, page_end, chunk_text) in enumerate(chunks, 1):
         _progress(
             progress_callback,
@@ -422,6 +440,8 @@ def _process_report(
         _progress(progress_callback, f"{report.report.path.name}: finished chunk {chunk_number} of {len(chunks)}.")
 
     dog_name = _dict_value(merged_dog, "dog_name") or report.report.path.stem
+    if not _dict_value(merged_dog, "dog_name"):
+        merged_dog["dog_name"] = dog_name
     if not rows["visit_summary.csv"]:
         rows["visit_summary.csv"].append(
             _visit_row(visit={"visit_type": "unknown", "evidence_quote": "No visit extracted."}, visit_id=f"{report.report.report_id}_V00001", dog_id=dog_id, report=report, default_page=1)

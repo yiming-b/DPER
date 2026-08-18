@@ -5,6 +5,7 @@ import os
 import re
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -303,13 +304,20 @@ class DefaultPhenotypeProvider(LLMProvider):
         dog: dict[str, Any] = {"species": "canine", "evidence_quote": text[:220]}
         patterns = {
             "dog_name": [
+                r"Clinical History for\s+([A-Z][A-Za-z '\-]{1,50})(?:\s+\(ID\b|\b)",
+                r"Care Instructions for\s+([A-Z][A-Za-z '\-]{1,50})(?:\s+\b[A-Z][A-Za-z'\-]+\b)?",
+                r"PATIENT INFORMATION\s+Name\s+([A-Z][A-Za-z '\-]+(?:\s+\([A-Z]\))?)\s+\(Record\b",
                 r"PATIENT INFORMATION\s+Name\s+([A-Z][A-Za-z '\-()]{1,50})\s+Species\b",
                 r"\bName\s*:?\s*([A-Z][A-Za-z '\-()]{1,50})\s+Species\b",
                 r"\bPet Name\s*:?\s*([A-Z][A-Za-z '\-()]{1,50})\b",
-                r"\bPatient\s*:?\s*(?:#?\d+,?\s*)?([A-Z][A-Za-z '\-()]{1,50})(?:\s|\.|,)",
-                r"Clinical History for\s+([A-Z][A-Za-z '\-()]{1,50})\b",
+                r"(?m)^\S.*?\b\d{3,}\s+([A-Z][A-Za-z '\-]{1,50})\s+\([A-Z]\)\s*$",
+                r"(?m)^\s*Patient\s*:?\s*(?:#?\d+,?\s*)?([A-Z][A-Za-z '\-()]{1,50})\s*$",
             ],
-            "breed_raw": [r"\bBreed\s*:?\s*([A-Za-z (),/&.\-]{2,80})", r"\bBreed \(Species\):\s*([^(\n]+)"],
+            "breed_raw": [
+                r"\b(?:Canine|Dog),\s*([^,\n]{2,80}),\s*(?:Male|Female|MN|FS|Spayed|Neutered)\b",
+                r"\bBreed \(Species\):\s*([^(\n]+)",
+                r"\bBreed\s*:?\s*([A-Za-z (),/&.\-]{2,80})",
+            ],
             "sex_raw": [r"\b(?:Sex|Gender)\s*:?\s*(Male\s*/\s*Neutered|Female\s*/\s*Spayed|Male,\s*Neutered|Female,\s*Spayed|Male Neutered|Female Spayed|MN|FS|Male|Female)"],
             "date_of_birth": [r"\b(?:DOB|D\.O\.B\.|Birthday|Birthdate)\s*:?\s*([0-9A-Za-z/\-.]+)"],
             "age_reported": [r"\bAge\s*:?\s*([0-9A-Za-z .]+)"],
@@ -322,7 +330,10 @@ class DefaultPhenotypeProvider(LLMProvider):
                     value = re.sub(r"\s+", " ", m.group(1)).strip(" ,.;")
                     if key == "dog_name" and self._reject_name(value):
                         continue
-                    dog[key] = self._clean_demographic_value(key, value)
+                    value = self._clean_demographic_value(key, value)
+                    if key == "age_reported" and (self._looks_like_date(value) or re.fullmatch(r"\d{4}", value)):
+                        continue
+                    dog[key] = value
                     break
         if not dog.get("dog_name") and source_file:
             dog["dog_name"] = Path(source_file).stem.split("_")[0].split("-")[0].strip() or None
@@ -335,10 +346,48 @@ class DefaultPhenotypeProvider(LLMProvider):
             dog["reproductive_status"] = "spayed"
         elif "neuter" in sex_raw or sex_raw == "mn":
             dog["reproductive_status"] = "neutered"
+        elif re.search(r"\b(?:Desexed|Neutered|Spayed)\s*:?\s*Y\b", text, re.I):
+            dog["reproductive_status"] = "spayed" if dog.get("sex") == "female" else "neutered"
         return dog
 
     def _reject_name(self, value: str) -> bool:
-        return value.lower().strip() in {
+        cleaned = value.lower().strip(" ,.;:-")
+        if not cleaned or len(cleaned) > 50:
+            return True
+        if not value[0].isupper():
+            return True
+        if len(cleaned.split()) > 4:
+            return True
+        if any(char.isdigit() for char in cleaned):
+            return True
+        if cleaned.startswith(("for ", "from ", "to ", "with ", "approximately ")):
+            return True
+        if any(
+            term in cleaned
+            for term in (
+                "anesthetic",
+                "appointment",
+                "client",
+                "diagnosis",
+                "doctor",
+                "exam",
+                "history",
+                "information",
+                "instruction",
+                "medical",
+                "medication",
+                "owner",
+                "patient",
+                "procedure",
+                "record",
+                "report",
+                "sent home",
+                "treatment",
+                "visit",
+            )
+        ):
+            return True
+        return cleaned in {
             "chart",
             "patient",
             "patient information",
@@ -349,6 +398,7 @@ class DefaultPhenotypeProvider(LLMProvider):
         }
 
     def _clean_demographic_value(self, key: str, value: str) -> str:
+        value = value.strip(" ,.;")
         split_terms = {
             "breed_raw": [" Age", " Sex", " Weight", " Color", " Address", " Home", " DOB", " D.O.B."],
             "coat_color": [" Weight", " Tag", " Microchip", " Rabies", " DOB", " Age", " Sex"],
@@ -358,7 +408,41 @@ class DefaultPhenotypeProvider(LLMProvider):
             idx = value.lower().find(term.lower())
             if idx > 0:
                 value = value[:idx]
-        return value.strip(" ,.;")
+        value = value.strip(" ,.;")
+        if key == "date_of_birth":
+            return self._normalize_date(value)
+        if key == "coat_color":
+            return self._normalize_color(value)
+        return value
+
+    def _looks_like_date(self, value: str) -> bool:
+        return bool(re.search(r"\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})\b", value))
+
+    def _normalize_date(self, value: str) -> str:
+        cleaned = value.strip(" ,.;")
+        for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y", "%m/%d/%y", "%m-%d-%Y", "%m-%d-%y", "%d-%b-%Y", "%d-%b-%y", "%b %d, %Y", "%B %d, %Y"):
+            try:
+                return datetime.strptime(cleaned, fmt).strftime("%m/%d/%Y")
+            except ValueError:
+                continue
+        return cleaned
+
+    def _normalize_color(self, value: str) -> str:
+        cleaned = value.lower().strip(" ,.;")
+        cleaned = re.sub(r"\s*(?:/|&|\band\b)\s*", ", ", cleaned)
+        aliases = {
+            "blk": "black",
+            "brn": "brown",
+            "gry": "grey",
+            "liv": "liver",
+            "tan": "tan",
+            "whit": "white",
+            "wht": "white",
+            "yel": "yellow",
+        }
+        parts = [part.strip() for part in cleaned.split(",") if part.strip()]
+        parts = [aliases.get(part, part) for part in parts]
+        return ", ".join(dict.fromkeys(parts))
 
     def _extract_vitals(self, text: str) -> dict[str, Any]:
         vitals: dict[str, Any] = {}
