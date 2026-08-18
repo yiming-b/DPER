@@ -314,7 +314,7 @@ The local Python UI lists:
 - Recommended Qwen3 4B GGUF model, marked as downloaded or missing.
 - Any other `.gguf` files found in `models/`.
 
-The local UI keeps Qwen runs practical by using smaller settings than API mode. If Qwen is selected, the page defaults to `Chunk chars = 8000` and `Dictionary rows = 60`, and the backend caps larger submitted values at those limits. For higher quality on a strong machine, run the CLI directly and increase `--chunk-chars` / `--max-dictionary-rows`.
+The local UI keeps Qwen runs practical by using smaller settings than API mode. If Qwen is selected, the page defaults to `Chunk chars = 8000` and `Dictionary rows = 60`. When no CUDA GPU is visible, the backend caps larger submitted values at those limits for CPU runtime. On a CUDA node, the backend does not apply that CPU cap, so you can increase the UI settings or run the CLI directly with larger `--chunk-chars` / `--max-dictionary-rows`.
 
 Optional local runtime environment variables:
 
@@ -322,7 +322,7 @@ Optional local runtime environment variables:
 export DPER_LOCAL_N_CTX=8192
 export DPER_LOCAL_MAX_TOKENS=2048
 export DPER_LOCAL_THREADS=8
-export DPER_LOCAL_GPU_LAYERS=0
+export DPER_LOCAL_GPU_LAYERS=-1
 ```
 
 On Windows PowerShell:
@@ -331,8 +331,54 @@ On Windows PowerShell:
 $env:DPER_LOCAL_N_CTX = "8192"
 $env:DPER_LOCAL_MAX_TOKENS = "2048"
 $env:DPER_LOCAL_THREADS = "8"
-$env:DPER_LOCAL_GPU_LAYERS = "0"
+$env:DPER_LOCAL_GPU_LAYERS = "-1"
 ```
+
+Use `DPER_LOCAL_GPU_LAYERS=-1` to request full GPU layer offload. If `CUDA_VISIBLE_DEVICES` or `NVIDIA_VISIBLE_DEVICES` is set, DPER also defaults to `-1` automatically.
+
+### NVIDIA CUDA / A100 Setup
+
+The normal setup can install a CPU-only `llama-cpp-python`. On an NVIDIA GPU node, install a CUDA-enabled `llama-cpp-python` build inside the DPER `.venv`.
+
+First check the CUDA version shown by the driver:
+
+```bash
+nvidia-smi
+```
+
+Then install a matching prebuilt CUDA wheel when available. For example, for CUDA 12.4:
+
+```bash
+cd DPER
+source .venv/bin/activate
+python -m pip install --upgrade --force-reinstall --no-cache-dir llama-cpp-python \
+  --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
+export DPER_LOCAL_GPU_LAYERS=-1
+export DPER_LOCAL_VERBOSE=1
+python scripts/check_local_qwen_gpu.py
+python scripts/run_web.py
+```
+
+Use `cu121`, `cu122`, `cu123`, `cu124`, `cu125`, `cu130`, or `cu132` to match the CUDA version on the node. The setup helper can run the same wheel install:
+
+```bash
+python scripts/setup_local_qwen.py --skip-download --cuda-wheel cu124
+```
+
+If no wheel matches the cluster, build from source with CUDA:
+
+```bash
+cd DPER
+source .venv/bin/activate
+CMAKE_ARGS="-DGGML_CUDA=on" FORCE_CMAKE=1 \
+  python -m pip install --upgrade --force-reinstall --no-cache-dir llama-cpp-python
+export DPER_LOCAL_GPU_LAYERS=-1
+export DPER_LOCAL_VERBOSE=1
+python scripts/check_local_qwen_gpu.py
+python scripts/run_web.py
+```
+
+The check script prints the resolved DPER runtime settings and enables verbose llama.cpp logs. Look for CUDA-related llama.cpp load messages and layer offload messages in the terminal, and confirm activity with `nvidia-smi` during the short test generation.
 
 For the recommended public Qwen3 4B GGUF download, users do not need a Hugging Face account or token. A Hugging Face account/token is only needed for gated or private model repositories, such as some Llama-family distributions or privately hosted model files.
 
@@ -392,7 +438,7 @@ On Linux/macOS, the same file is:
 ./models/Qwen3-4B-Q4_K_M.gguf
 ```
 
-3. Run from the local web UI, where Qwen3 4B is auto-selected when downloaded, or run from CLI:
+3. Select Qwen3 4B in the local web UI, or run from CLI:
 
 Windows PowerShell:
 

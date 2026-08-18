@@ -16,7 +16,7 @@ from .dataset import WEB_IDENTITY_COLUMNS, preview_csv
 from .dictionary import is_extractable_phenotype_row, load_dictionary
 from .llm_pipeline import RunConfig, run_extraction
 from .local_models import QWEN3_4B_MODEL_ID, default_qwen_model_path
-from .providers import ProviderError, make_provider
+from .providers import ProviderError, cuda_visible, make_provider
 
 OPENAI_MODEL_OPTIONS = [
     {"id": "gpt-5.6-luna", "label": "GPT-5.6 Luna - lower cost"},
@@ -93,11 +93,11 @@ def extraction_settings(provider_name: str) -> tuple[int, int, str]:
     chunk_chars = parse_bounded_int(request.form.get("chunk_chars"), 18000, 4000, 60000)
     dictionary_rows = parse_bounded_int(request.form.get("max_dictionary_rows"), 120, 20, 300)
     note = ""
-    if provider_name in LOCAL_MODEL_PROVIDERS:
+    if provider_name in LOCAL_MODEL_PROVIDERS and not cuda_visible():
         if chunk_chars > LOCAL_CHUNK_CHARS or dictionary_rows > LOCAL_DICTIONARY_ROWS:
             note = (
                 f"Local model mode capped Chunk chars at {LOCAL_CHUNK_CHARS} "
-                f"and Dictionary rows at {LOCAL_DICTIONARY_ROWS} to keep runtime practical."
+                f"and Dictionary rows at {LOCAL_DICTIONARY_ROWS} to keep CPU runtime practical."
             )
         chunk_chars = min(chunk_chars, LOCAL_CHUNK_CHARS)
         dictionary_rows = min(dictionary_rows, LOCAL_DICTIONARY_ROWS)
@@ -429,6 +429,9 @@ def create_app() -> Flask:
                 model=prepared["model"],
                 local_model=prepared["local_model"],
             )
+            runtime_summary = getattr(provider, "runtime_summary", "")
+            if runtime_summary:
+                update(runtime_summary)
             if prepared["settings_note"]:
                 update(prepared["settings_note"])
             summary = run_extraction(

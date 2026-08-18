@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,21 @@ from .local_models import QWEN3_4B_MODEL_ID, default_qwen_model_path
 
 class ProviderError(RuntimeError):
     pass
+
+
+def cuda_visible() -> bool:
+    for name in ("CUDA_VISIBLE_DEVICES", "NVIDIA_VISIBLE_DEVICES"):
+        value = os.getenv(name)
+        if value and value.lower() not in {"-1", "none", "void", "no", "false"}:
+            return True
+    return False
+
+
+def env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.lower() in {"1", "true", "yes", "on"}
 
 
 @dataclass
@@ -106,6 +122,7 @@ class LocalGGUFProvider(LLMProvider):
         top_p: float = 0.8,
         n_threads: int | None = None,
         n_gpu_layers: int | None = None,
+        verbose: bool | None = None,
     ):
         super().__init__(model or str(model_path))
         try:
@@ -127,14 +144,23 @@ class LocalGGUFProvider(LLMProvider):
         resolved_gpu_layers = n_gpu_layers
         if resolved_gpu_layers is None and os.getenv("DPER_LOCAL_GPU_LAYERS"):
             resolved_gpu_layers = int(os.getenv("DPER_LOCAL_GPU_LAYERS", "0"))
+        if resolved_gpu_layers is None:
+            resolved_gpu_layers = -1 if cuda_visible() else 0
+        resolved_verbose = env_flag("DPER_LOCAL_VERBOSE", resolved_gpu_layers != 0) if verbose is None else verbose
+        self.runtime_summary = (
+            "Local GGUF runtime: "
+            f"model={path}, n_ctx={resolved_n_ctx}, max_tokens={self.max_tokens}, "
+            f"n_threads={resolved_threads}, n_gpu_layers={resolved_gpu_layers}, "
+            f"cuda_visible={cuda_visible()}, verbose={resolved_verbose}"
+        )
+        print(self.runtime_summary, file=sys.stderr, flush=True)
         llama_kwargs: dict[str, Any] = {
             "model_path": str(path),
             "n_ctx": resolved_n_ctx,
             "n_threads": resolved_threads,
-            "verbose": False,
+            "n_gpu_layers": resolved_gpu_layers,
+            "verbose": resolved_verbose,
         }
-        if resolved_gpu_layers is not None:
-            llama_kwargs["n_gpu_layers"] = resolved_gpu_layers
         self.llm = Llama(**llama_kwargs)
 
     def generate(self, system_prompt: str, user_prompt: str) -> str:
