@@ -431,18 +431,38 @@ Linux/macOS:
 python scripts/download_qwen3_4b.py
 ```
 
-The same downloader can fetch larger Qwen3 GGUF models without installing `huggingface_hub`.
-
-Recommended next step on a CUDA node with an A100 40GB:
+The same downloader can fetch larger GGUF models without installing `huggingface_hub`. The clearer generic script name is:
 
 ```bash
-python scripts/download_qwen3_4b.py --model qwen3-14b
+python scripts/download_model.py --list-models
 ```
 
-More aggressive, slower option:
+Suggested benchmark order on a CUDA node with an A100 40GB:
 
 ```bash
-python scripts/download_qwen3_4b.py --model qwen3-32b
+python scripts/download_model.py --model qwen3-14b
+python scripts/download_model.py --model mistral-small-24b
+python scripts/download_model.py --model deepseek-r1-qwen-14b
+```
+
+Larger and slower options:
+
+```bash
+python scripts/download_model.py --model qwen3-32b
+python scripts/download_model.py --model deepseek-r1-qwen-32b
+```
+
+Gemma 3 27B is also available as a preset, but its Hugging Face repository is gated. Accept Google's license on Hugging Face, then set `HF_TOKEN` or `HUGGINGFACE_HUB_TOKEN` before downloading:
+
+```bash
+export HF_TOKEN="hf_..."
+python scripts/download_model.py --model gemma-3-27b
+```
+
+To download any other GGUF file from Hugging Face:
+
+```bash
+python scripts/download_model.py --repo owner/model-GGUF --filename model-Q4_K_M.gguf
 ```
 
 This downloads `Qwen/Qwen3-4B-GGUF:Q4_K_M` to:
@@ -491,7 +511,9 @@ For example, after downloading Qwen3 14B:
 python scripts/llm_extract.py --provider local --local-model ./models/Qwen3-14B-Q4_K_M.gguf --input "./reports" --output "./output/dper_qwen14b"
 ```
 
-Local model quality depends heavily on the model and computer speed. Qwen3 4B is useful as a small no-API semantic extractor, but it can miss simple identity fields in messy multi-column veterinary PDFs. DPER therefore extracts core dog identity and demographics with deterministic report-template parsing before model chunks run, then lets the local model add visit and phenotype-event evidence. For best results, benchmark Qwen3 4B against a reviewed subset of reports before processing a large folder.
+After downloading a model, restart the local web UI. Any `.gguf` file in `models/` appears in the local model list.
+
+Local model quality depends heavily on the model and computer speed. Qwen3 4B is useful as a small no-API semantic extractor, but it can miss simple identity fields in messy multi-column veterinary PDFs. DPER therefore extracts core dog identity and demographics with deterministic report-template parsing before model chunks run, then lets the local model add visit and phenotype-event evidence. For best results, benchmark several models against the same reviewed subset of reports before processing a large folder.
 
 ## Repository Layout
 
@@ -500,7 +522,7 @@ src/dper/                 Python package
 src/dper/web_app.py       Flask app
 src/dper/llm_pipeline.py  LLM extraction runner and CSV flattening
 src/dper/providers.py     OpenAI, Claude, local GGUF provider interface
-src/dper/local_models.py  Local Qwen3 4B model metadata and downloader
+src/dper/local_models.py  Local GGUF model metadata and downloader
 schemas/                  Controlled phenotype schema
 scripts/                  CLI and web entrypoints
 docs/                     Design notes and prompt template
@@ -511,7 +533,7 @@ docs/                     Design notes and prompt template
 - Do not commit raw report PDFs.
 - Do not commit generated patient-level CSVs unless they are approved for sharing.
 - API mode sends extracted, redacted report text chunks to the selected model provider.
-- Local Qwen mode keeps model inference on the user's computer.
+- Local GGUF mode keeps model inference on the user's computer.
 - API keys are not stored by the web UI.
 - Review `new_candidate_phenotypes.csv` before expanding the dictionary.
 
