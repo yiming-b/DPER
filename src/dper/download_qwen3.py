@@ -3,20 +3,27 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .local_models import QWEN3_4B_MODEL_ID, default_qwen_model_path, download_qwen3_4b
+from .local_models import QWEN3_GGUF_MODELS, download_gguf_model, model_path
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Download the recommended local Qwen3 4B GGUF model for DPER.")
-    parser.add_argument("--output", default=None, help="Destination .gguf path. Defaults to models/Qwen3-4B-Q4_K_M.gguf.")
+    parser = argparse.ArgumentParser(description="Download a local Qwen3 GGUF model for DPER.")
+    parser.add_argument(
+        "--model",
+        choices=sorted(QWEN3_GGUF_MODELS),
+        default="qwen3-4b",
+        help="Model to download. Defaults to qwen3-4b.",
+    )
+    parser.add_argument("--output", default=None, help="Destination .gguf path. Defaults to models/<model filename>.")
     parser.add_argument("--overwrite", action="store_true", help="Replace an existing local model file.")
     return parser
 
 
 def main() -> None:
     args = build_parser().parse_args()
-    destination = Path(args.output) if args.output else default_qwen_model_path()
-    print(f"Model: {QWEN3_4B_MODEL_ID}")
+    model = QWEN3_GGUF_MODELS[args.model]
+    destination = Path(args.output) if args.output else model_path(model)
+    print(f"Model: {model.model_id}")
     print(f"Destination: {destination}")
     last_reported = -1
 
@@ -31,7 +38,7 @@ def main() -> None:
             last_reported = downloaded // (512 * 1024 * 1024)
             print(f"Downloaded {downloaded / (1024 * 1024 * 1024):.1f} GB")
 
-    path = download_qwen3_4b(destination, overwrite=args.overwrite, progress=progress)
+    path = download_gguf_model(args.model, destination, overwrite=args.overwrite, progress=progress)
     print(f"Ready: {path}")
 
 

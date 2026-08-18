@@ -431,6 +431,20 @@ Linux/macOS:
 python scripts/download_qwen3_4b.py
 ```
 
+The same downloader can fetch larger Qwen3 GGUF models without installing `huggingface_hub`.
+
+Recommended next step on a CUDA node with an A100 40GB:
+
+```bash
+python scripts/download_qwen3_4b.py --model qwen3-14b
+```
+
+More aggressive, slower option:
+
+```bash
+python scripts/download_qwen3_4b.py --model qwen3-32b
+```
+
 This downloads `Qwen/Qwen3-4B-GGUF:Q4_K_M` to:
 
 ```powershell
@@ -469,6 +483,12 @@ Linux/macOS:
 
 ```bash
 python scripts/llm_extract.py --provider local --local-model ./models/your-instruct-model.gguf --input "./reports" --output "./output/dper_local"
+```
+
+For example, after downloading Qwen3 14B:
+
+```bash
+python scripts/llm_extract.py --provider local --local-model ./models/Qwen3-14B-Q4_K_M.gguf --input "./reports" --output "./output/dper_qwen14b"
 ```
 
 Local model quality depends heavily on the model and computer speed. Qwen3 4B is useful as a small no-API semantic extractor, but it can miss simple identity fields in messy multi-column veterinary PDFs. DPER therefore extracts core dog identity and demographics with deterministic report-template parsing before model chunks run, then lets the local model add visit and phenotype-event evidence. For best results, benchmark Qwen3 4B against a reviewed subset of reports before processing a large folder.
